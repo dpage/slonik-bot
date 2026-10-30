@@ -12,6 +12,7 @@
 .claude/plans/
 .claude/specs/
 .worktrees/
+.claude/worktrees/
 
 # Editors and operating systems
 .DS_Store
