@@ -7,6 +7,8 @@ import (
 )
 
 func TestNewSelectsProvider(t *testing.T) {
+	// Keeps a real ~/.anthropic-api-key from supplying the "missing" key.
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("ANTHROPIC_API_KEY", "k")
 	if l, err := New(config.Default().LLM); err != nil {
 		t.Fatal(err)
