@@ -1,6 +1,8 @@
 package summary
 
 import (
+	"strings"
+
 	"github.com/dpage/slonik-bot/internal/config"
 )
 
@@ -16,3 +18,21 @@ func New(cfg config.LLM) (LLM, error) {
 	}
 	return NewAnthropic(cfg, key), nil
 }
+
+// redacted hides key in an error's message. The providers quote the server's
+// reply in their errors, and a proxy or local server can echo the request's
+// credentials back in it; the error is then printed and logged.
+type redacted struct {
+	err error
+	key string
+}
+
+func redact(err error, key string) error {
+	if err == nil || key == "" {
+		return err
+	}
+	return redacted{err, key}
+}
+
+func (r redacted) Error() string { return strings.ReplaceAll(r.err.Error(), r.key, "[redacted]") }
+func (r redacted) Unwrap() error { return r.err }

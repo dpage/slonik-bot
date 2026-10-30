@@ -53,6 +53,34 @@ func TestOpenAISendsKeyAndReportsErrors(t *testing.T) {
 	}
 }
 
+func TestOpenAIErrorNeverShowsTheKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "bad credentials: "+r.Header.Get("Authorization"), http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	cfg := config.LLM{Provider: "openai", Model: "m", BaseURL: srv.URL, MaxOutputTokens: 10}
+	_, err := NewOpenAI(cfg, fakeKey, nil).Complete(context.Background(), "s", "u", Schema())
+	if err == nil || strings.Contains(err.Error(), fakeKey) || !strings.Contains(err.Error(), "bad credentials") {
+		t.Fatalf("%v", err)
+	}
+}
+
+// The quoted reply is shortened, and the cut must not leave part of the key.
+func TestOpenAIErrorNeverShowsPartOfTheKey(t *testing.T) {
+	for _, pad := range []int{maxErrorBody - 5, maxErrorBody - 1, maxErrorBody, maxErrorBody + 3} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+			io.WriteString(w, strings.Repeat("x", pad)+fakeKey+strings.Repeat("y", 100))
+		}))
+		cfg := config.LLM{Provider: "openai", Model: "m", BaseURL: srv.URL, MaxOutputTokens: 10}
+		_, err := NewOpenAI(cfg, fakeKey, nil).Complete(context.Background(), "s", "u", Schema())
+		srv.Close()
+		if err == nil || strings.Contains(err.Error(), fakeKey[:5]) {
+			t.Fatalf("pad %d: %v", pad, err)
+		}
+	}
+}
+
 func TestOpenAILength(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"choices":[{"finish_reason":"length","message":{"content":"{"}}]}`)

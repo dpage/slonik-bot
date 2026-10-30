@@ -91,13 +91,17 @@ func (o *OpenAI) Complete(ctx context.Context, system, user string, schema map[s
 
 	resp, err := o.hc.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("summary: openai request failed: %w", err)
+		return "", fmt.Errorf("summary: openai request failed: %w", redact(err, o.key))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
-		return "", fmt.Errorf("summary: openai request failed: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody+1))
+		cut := len(b) > maxErrorBody
+		if cut {
+			b = b[:maxErrorBody]
+		}
+		return "", fmt.Errorf("summary: openai request failed: %s: %s", resp.Status, strings.TrimSpace(redactQuote(string(b), o.key, cut)))
 	}
 
 	var out openAIResponse
@@ -112,4 +116,23 @@ func (o *OpenAI) Complete(ctx context.Context, system, user string, schema map[s
 		return "", fmt.Errorf("summary: the response was cut off at %d tokens; raise llm.max_output_tokens", o.max)
 	}
 	return c.Message.Content, nil
+}
+
+// redactQuote hides key in a server's reply before it is quoted in an error,
+// since a server or proxy can echo the request's credentials back. When the
+// reply was cut short, the cut may have split a copy of the key, so a tail
+// that could be the start of it is dropped as well.
+func redactQuote(s, key string, cut bool) string {
+	if key == "" {
+		return s
+	}
+	s = strings.ReplaceAll(s, key, "[redacted]")
+	if cut {
+		for i := len(key) - 1; i > 0; i-- {
+			if strings.HasSuffix(s, key[:i]) {
+				return s[:len(s)-i]
+			}
+		}
+	}
+	return s
 }

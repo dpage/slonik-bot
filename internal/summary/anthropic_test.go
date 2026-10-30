@@ -16,6 +16,11 @@ import (
 )
 
 func sse(w http.ResponseWriter, stop string, text string) {
+	sseDelta(w, map[string]any{"stop_reason": stop}, text)
+}
+
+// sseDelta streams one text block, ending with a message_delta carrying delta.
+func sseDelta(w http.ResponseWriter, delta map[string]any, text string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	ev := func(name string, v any) {
 		b, _ := json.Marshal(v)
@@ -25,7 +30,7 @@ func sse(w http.ResponseWriter, stop string, text string) {
 	ev("content_block_start", map[string]any{"type": "content_block_start", "index": 0, "content_block": map[string]any{"type": "text", "text": ""}})
 	ev("content_block_delta", map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "text_delta", "text": text}})
 	ev("content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
-	ev("message_delta", map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": stop}, "usage": map[string]any{"output_tokens": 5}})
+	ev("message_delta", map[string]any{"type": "message_delta", "delta": delta, "usage": map[string]any{"output_tokens": 5}})
 	ev("message_stop", map[string]any{"type": "message_stop"})
 }
 
@@ -78,5 +83,35 @@ func TestAnthropicHTTPError(t *testing.T) {
 	_, err := NewAnthropic(config.Default().LLM, "bad", option.WithBaseURL(srv.URL), option.WithMaxRetries(0)).Complete(context.Background(), "s", "u", Schema())
 	if err == nil {
 		t.Fatal("401 not reported")
+	}
+}
+
+func TestAnthropicRefusal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sseDelta(w, map[string]any{
+			"stop_reason":  "refusal",
+			"stop_details": map[string]any{"type": "refusal", "category": "general_harms", "explanation": "Not something I can help with."},
+		}, "")
+	}))
+	defer srv.Close()
+	_, err := NewAnthropic(config.Default().LLM, "k", option.WithBaseURL(srv.URL)).Complete(context.Background(), "s", "u", Schema())
+	if err == nil || !strings.Contains(err.Error(), "declined") || !strings.Contains(err.Error(), "general_harms") || !strings.Contains(err.Error(), "Not something I can help with.") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// fakeKey is plainly not a real key. The servers below echo it back, as a
+// misbehaving proxy might, and it must not reach the error message.
+const fakeKey = "sk-test-0000-not-a-real-key"
+
+func TestAnthropicErrorNeverShowsTheKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprintf(w, `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key %s"}}`, r.Header.Get("X-Api-Key"))
+	}))
+	defer srv.Close()
+	_, err := NewAnthropic(config.Default().LLM, fakeKey, option.WithBaseURL(srv.URL), option.WithMaxRetries(0)).Complete(context.Background(), "s", "u", Schema())
+	if err == nil || strings.Contains(err.Error(), fakeKey) {
+		t.Fatalf("got %v", err)
 	}
 }

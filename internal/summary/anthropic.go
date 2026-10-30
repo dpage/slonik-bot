@@ -16,6 +16,7 @@ type Anthropic struct {
 	client anthropic.Client
 	model  string
 	max    int64
+	key    string // kept only to redact it from errors
 }
 
 // NewAnthropic builds a provider for the given settings and API key. Extra
@@ -26,6 +27,7 @@ func NewAnthropic(cfg config.LLM, key string, opts ...option.RequestOption) *Ant
 		client: anthropic.NewClient(all...),
 		model:  cfg.ResolvedModel(),
 		max:    int64(cfg.MaxOutputTokens),
+		key:    key,
 	}
 }
 
@@ -59,7 +61,7 @@ func (a *Anthropic) Complete(ctx context.Context, system, user string, schema ma
 		}
 	}
 	if err := stream.Err(); err != nil {
-		return "", fmt.Errorf("summary: anthropic request failed: %w", err)
+		return "", fmt.Errorf("summary: anthropic request failed: %w", redact(err, a.key))
 	}
 
 	switch message.StopReason {
