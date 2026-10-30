@@ -28,7 +28,9 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestLoadOverridesAndExpandsHome(t *testing.T) {
-	home, _ := os.UserHomeDir()
+	// ~ is expanded against a home of the test's own, never the real one.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	p := filepath.Join(t.TempDir(), "config.yaml")
 	os.WriteFile(p, []byte("output_dir: ~/notes\nmax_duration: 90m\nllm:\n  provider: openai\n  model: llama3\n  base_url: http://localhost:11434/v1\n"), 0o600)
 	c, err := Load(p, true)
