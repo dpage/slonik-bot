@@ -150,6 +150,13 @@ func (s *Server) Caption(block int, speaker, text string) {
 // RemoveCaption removes a caption block.
 func (s *Server) RemoveCaption(block int) { s.push(queuedCommand{Op: "remove", Block: block}) }
 
+// WrapCaptions moves every caption block into one new div inside the region;
+// blocks added afterwards go into it too.
+func (s *Server) WrapCaptions() { s.push(queuedCommand{Op: "wrap"}) }
+
+// RemoveCaptionWrapper removes the div WrapCaptions made, and the blocks in it.
+func (s *Server) RemoveCaptionWrapper() { s.push(queuedCommand{Op: "remove-wrapper"}) }
+
 // ReplaceCaptionRegion swaps the region node for a new, empty one.
 func (s *Server) ReplaceCaptionRegion() { s.push(queuedCommand{Op: "replace-region"}) }
 

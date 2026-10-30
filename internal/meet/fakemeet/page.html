@@ -23,7 +23,7 @@
   var participants = [];
   var deferred = [];
   var pendingAdmit = false, pendingDeny = false;
-  var region = null, blocks = {};
+  var region = null, blocks = {}, wrapper = null;
   var callEl = null, peopleEl = null, panelEl = null, dialogHolder = null, menuHolder = null;
 
   function el(tag, attrs, text) {
@@ -140,6 +140,7 @@
 
     region = makeRegion();
     blocks = {};
+    wrapper = null;
     callEl.appendChild(region);
 
     var chatBtn = el("button", { "aria-label": "Chat with everyone" });
@@ -246,12 +247,12 @@
     block.appendChild(img);
     block.appendChild(who);
     block.appendChild(body);
-    region.appendChild(block);
+    (wrapper || region).appendChild(block);
     blocks[n] = { node: block, speaker: speakerNode, text: textNode };
   }
 
   // ---- commands ----
-  var inCallOps = { caption: 1, remove: 1, "replace-region": 1 };
+  var inCallOps = { caption: 1, remove: 1, "replace-region": 1, wrap: 1, "remove-wrapper": 1 };
 
   function apply(c) {
     switch (c.op) {
@@ -283,11 +284,20 @@
         else if (c.op === "remove") {
           var b = blocks[c.block];
           if (b) { if (b.node.parentNode) { b.node.parentNode.removeChild(b.node); } delete blocks[c.block]; }
+        } else if (c.op === "wrap") {
+          wrapper = el("div");
+          Object.keys(blocks).forEach(function (k) { wrapper.appendChild(blocks[k].node); });
+          region.appendChild(wrapper);
+        } else if (c.op === "remove-wrapper") {
+          if (wrapper && wrapper.parentNode) { wrapper.parentNode.removeChild(wrapper); }
+          Object.keys(blocks).forEach(function (k) { if (!blocks[k].node.isConnected) { delete blocks[k]; } });
+          wrapper = null;
         } else {
           var fresh = makeRegion();
           region.parentNode.replaceChild(fresh, region);
           region = fresh;
           blocks = {};
+          wrapper = null;
         }
       }
     }

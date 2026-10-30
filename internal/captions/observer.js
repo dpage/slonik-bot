@@ -2,6 +2,9 @@
 // text to Go through the __slonikCaption binding. Block ids are assigned here,
 // per DOM node, because Meet's own elements carry no stable id.
 (() => {
+  // Chrome runs scripts for new documents in every frame; captions are only
+  // in the top one.
+  if (window !== window.top) return;
   if (window.__slonikObserver) return;
   window.__slonikObserver = true;
 
@@ -77,8 +80,13 @@
     const found = new Set();
     for (const n of rec.removedNodes) {
       if (n.nodeType !== Node.ELEMENT_NODE || n.isConnected) continue;
-      if (ids.has(n) || n.matches('.nMcdL') ||
-          (rec.target === region && n.querySelector(AVATAR))) {
+      // A wrapper around Meet's classed blocks is not a block itself, even
+      // though it holds their avatars.
+      if (ids.has(n) || n.matches('.nMcdL')) {
+        found.add(n);
+      } else if (n.querySelector('.nMcdL')) {
+        for (const b of blocksIn(n)) found.add(b);
+      } else if (rec.target === region && n.querySelector(AVATAR)) {
         found.add(n);
       } else {
         for (const b of blocksIn(n)) found.add(b);
@@ -120,7 +128,9 @@
   };
 
   // Meet replaces the region when captions are toggled or the layout changes,
-  // so look for it again every two seconds.
+  // and a new document has none at first, so look for it again whenever the
+  // page changes without a connected region, and every two seconds as a
+  // backstop.
   const attach = () => {
     const r = findRegion();
     if (r === region) return;
@@ -139,5 +149,11 @@
   };
 
   attach();
+  // The document itself, not documentElement, which may not exist yet when
+  // Chrome runs this at the start of a new document.
+  new MutationObserver(() => {
+    if (region && region.isConnected) return;
+    attach();
+  }).observe(document, { childList: true, subtree: true });
   setInterval(attach, 2000);
 })();

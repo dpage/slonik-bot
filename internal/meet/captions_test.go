@@ -1,6 +1,7 @@
 package meet
 
 import (
+	"maps"
 	"testing"
 	"time"
 
@@ -145,9 +146,6 @@ func TestCaptionsSurviveReload(t *testing.T) {
 	if err := s.Join(ctx); err != nil {
 		t.Fatal(err)
 	}
-	// The injected observer starts before the page has a captions region,
-	// and finds it on its two-second re-attach.
-	time.Sleep(3 * time.Second)
 	srv.Caption(1, "Alice Example", "After the reload.")
 	srv.RemoveCaption(1)
 	checkFinal(t, collect(t, events, removals(1)), "After the reload.")
@@ -155,6 +153,69 @@ func TestCaptionsSurviveReload(t *testing.T) {
 	if len(events) != 0 {
 		t.Fatalf("%d further events queued", len(events))
 	}
+}
+
+// settled waits for evs to satisfy want, then for half a second more, and
+// returns everything that arrived.
+func settled(t *testing.T, events <-chan captions.Event, want func([]captions.Event) bool) []captions.Event {
+	t.Helper()
+	evs := collect(t, events, want)
+	time.Sleep(500 * time.Millisecond)
+	for len(events) > 0 {
+		evs = append(evs, <-events)
+	}
+	return evs
+}
+
+// checkTexts checks that evs hold exactly the given texts, by speaker, and
+// a removal for each of their blocks.
+func checkTexts(t *testing.T, evs []captions.Event, want map[string]string) {
+	t.Helper()
+	got := map[string]string{}
+	blocks := map[int]bool{}
+	removed := map[int]bool{}
+	for _, e := range evs {
+		if e.Removed {
+			if removed[e.Block] {
+				t.Fatalf("block %d removed twice: %+v", e.Block, evs)
+			}
+			removed[e.Block] = true
+			continue
+		}
+		if _, dup := got[e.Speaker]; dup || blocks[e.Block] {
+			t.Fatalf("more than one text event for %q: %+v", e.Speaker, evs)
+		}
+		got[e.Speaker], blocks[e.Block] = e.Text, true
+	}
+	if !maps.Equal(got, want) || !maps.Equal(blocks, removed) {
+		t.Fatalf("want texts %v, each removed once; got %+v", want, evs)
+	}
+}
+
+func TestCaptionWrapperRemovedWithTrackedBlocks(t *testing.T) {
+	srv, events := startedFeed(t, fakemeet.Scenario{})
+	srv.Caption(1, "Alice Example", "One.")
+	srv.Caption(2, "Bob Example", "Two.")
+	srv.WrapCaptions()
+	srv.RemoveCaptionWrapper()
+	checkTexts(t, settled(t, events, removals(2)), map[string]string{
+		"Alice Example": "One.",
+		"Bob Example":   "Two.",
+	})
+}
+
+func TestCaptionWrapperRemovedWithUnseenBlocks(t *testing.T) {
+	srv, events := startedFeed(t, fakemeet.Scenario{})
+	srv.WrapCaptions()
+	srv.InOneTask(func() {
+		srv.Caption(1, "Alice Example", "One.")
+		srv.Caption(2, "Bob Example", "Two.")
+		srv.RemoveCaptionWrapper()
+	})
+	checkTexts(t, settled(t, events, removals(2)), map[string]string{
+		"Alice Example": "One.",
+		"Bob Example":   "Two.",
+	})
 }
 
 // startedFeed joins the fake call and starts captions.
