@@ -32,7 +32,7 @@ The transcript comes from live captions, so expect misheard words, especially Po
 
 Produce:
 - title: a short descriptive title for the meeting.
-- summary: the discussion in a few paragraphs of Markdown, organised by topic rather than in transcript order. Attribute positions to people by name where that matters.
+- summary: the discussion in a few paragraphs of Markdown, organised by topic rather than in transcript order. Attribute positions to people by name where that matters. Refer to people by name, or as "they"; never infer anyone's pronouns from their name.
 - decisions: each decision the meeting actually reached, one sentence each. Leave the list empty if none were reached.
 - action_items: each task someone agreed to do or was asked to do. Set owner only when the transcript names who will do it, or someone volunteers; otherwise null. Never guess an owner. Set due only when a deadline was stated, in the words used; otherwise null.
 - corrections: caption mistakes you are confident about, as exact phrases from the transcript ("from") and what was said ("to"), most useful for glossary terms and people's names. Only include phrases that appear verbatim in the transcript.
