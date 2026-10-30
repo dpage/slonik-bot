@@ -30,6 +30,7 @@ func TestMergeText(t *testing.T) {
 		{"clean continuation beats diverging tie", "so I think that we should do it and I think that", "I think that is fine", "so I think that we should do it and I think that is fine"},
 		{"anchor retry, revised word", "one two three four five six seven eight nine ten", "one two tree four five six seven eight nine ten eleven", "one two tree four five six seven eight nine ten eleven"},
 		{"anchor retry, front trim with revised word", "alpha bravo charlie delta echo foxtrot golf hotel", "dalta echo foxtrot golf hotel india", "alpha bravo charlie dalta echo foxtrot golf hotel india"},
+		{"retry needs a full anchor", "w0 w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 the w16 w17 w18 w19", "x y z the", "w0 w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 the w16 w17 w18 w19 x y z the"},
 		{"empty incoming keeps held", "Hello there", "  ", "Hello there"},
 	}
 	for _, c := range cases {

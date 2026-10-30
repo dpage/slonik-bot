@@ -138,7 +138,7 @@ func mergeText(held, incoming string) string {
 		inNorm[i] = normalise(w)
 	}
 
-	if j, ok := findOverlap(heldNorm, inNorm); ok {
+	if j, ok := findOverlap(heldNorm, inNorm, 0, false); ok {
 		return strings.Join(append(heldWords[:j:j], inWords...), " ")
 	}
 
@@ -146,10 +146,10 @@ func mergeText(held, incoming string) string {
 	// no longer match what is held. Skip up to three of them and align on
 	// the rest; the skipped words are taken as revisions of the held words
 	// just before the match, so they replace those rather than being lost
-	// or duplicated. Three is the anchor length: a longer skip would leave
-	// too little to trust.
-	for k := 1; k <= 3 && k < len(inNorm); k++ {
-		if j, ok := findOverlap(heldNorm, inNorm[k:]); ok && j >= k {
+	// or duplicated. The remainder must carry a full three-word anchor, as a
+	// shorter one could match anywhere and discard the held text after it.
+	for k := 1; k <= 3 && len(inNorm)-k >= 3; k++ {
+		if j, ok := findOverlap(heldNorm, inNorm[k:], k, true); ok {
 			return strings.Join(append(heldWords[:j-k:j-k], inWords...), " ")
 		}
 	}
@@ -170,17 +170,19 @@ func mergeText(held, incoming string) string {
 // off speech. On equal length a clean continuation (one reaching the end of
 // held) beats one that diverges, since choosing the divergent one discards
 // the held words after it; remaining ties go to the earliest position.
-func findOverlap(held, in []string) (int, bool) {
+// Positions before minJ are ignored, and strict drops the short-tail rule so
+// only a full anchor qualifies.
+func findOverlap(held, in []string, minJ int, strict bool) (int, bool) {
 	anchor := min(3, len(in))
 	tail := min(2, len(in))
 	best, bestLen, bestClean := -1, 0, false
-	for j := range held {
+	for j := minJ; j < len(held); j++ {
 		n := 0
 		for j+n < len(held) && n < len(in) && held[j+n] == in[n] {
 			n++
 		}
 		clean := j+n == len(held)
-		if n < anchor && (!clean || n < tail) {
+		if n < anchor && (strict || !clean || n < tail) {
 			continue
 		}
 		if n > bestLen || (n == bestLen && clean && !bestClean) {
