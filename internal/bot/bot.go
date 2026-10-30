@@ -389,17 +389,15 @@ func finish(ctx context.Context, dir, jsonl string, m transcript.Meeting, us []t
 // shellQuote makes s one word for a POSIX shell, so that the printed retry
 // command can be pasted as is. Plain paths are left alone for readability; the
 // rest are single-quoted, which leaves nothing inside special except the
-// single quote itself, written as '\''. A leading ~ is quoted too, since the
+// single quote itself, which is written by closing the quotes, adding an
+// escaped quote and reopening them. A leading ~ is quoted too, since the
 // shell would expand it.
 func shellQuote(s string) string {
-	plain := s != "" && s[0] != '~'
-	for _, c := range s {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("_./-~:+=,@", c)) {
-			plain = false
-			break
-		}
+	unsafe := func(c rune) bool {
+		safe := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("_./-~:+=,@", c)
+		return !safe
 	}
-	if plain {
+	if s != "" && s[0] != '~' && !strings.ContainsFunc(s, unsafe) {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
