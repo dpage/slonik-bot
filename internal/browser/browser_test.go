@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,41 @@ func TestLaunchMissingChrome(t *testing.T) {
 	_, err := Launch(context.Background(), Options{ProfileDir: t.TempDir(), ChromePath: "/nonexistent/chrome", Headless: true})
 	if err == nil || !strings.Contains(err.Error(), "/nonexistent/chrome") {
 		t.Fatalf("%v", err)
+	}
+}
+
+// fakeChrome writes a stand-in for Chrome that records its arguments, one
+// per line, in the returned file and exits, so tests can see the command line
+// Launch builds without starting a browser.
+func fakeChrome(t *testing.T) (exe, argsFile string) {
+	t.Helper()
+	dir := t.TempDir()
+	exe = filepath.Join(dir, "chrome")
+	argsFile = filepath.Join(dir, "args")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + argsFile + "'\nexit 1\n"
+	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return exe, argsFile
+}
+
+// The meeting's audio must never come out of the operator's speakers: captions
+// are made by Meet's servers, so the bot gains nothing from hearing it.
+func TestLaunchMutesAudio(t *testing.T) {
+	// A visible window on Linux needs a display before chromedp will start
+	// the process; the fake never opens one.
+	t.Setenv("DISPLAY", ":0")
+	for _, headless := range []bool{true, false} {
+		exe, argsFile := fakeChrome(t)
+		// The fake exits at once, so Launch is expected to fail.
+		_, _ = Launch(context.Background(), Options{ProfileDir: t.TempDir(), ChromePath: exe, Headless: headless})
+		args, err := os.ReadFile(argsFile)
+		if err != nil {
+			t.Fatalf("headless=%v: fake Chrome was not started: %v", headless, err)
+		}
+		if !slices.Contains(strings.Split(string(args), "\n"), "--mute-audio") {
+			t.Errorf("headless=%v: --mute-audio missing from:\n%s", headless, args)
+		}
 	}
 }
 

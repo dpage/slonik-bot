@@ -61,10 +61,16 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 		// New headless mode; the defaults set the plain --headless spelling.
 		opts = append(opts, chromedp.Flag("headless", "new"))
 	} else {
-		// Removes the headless, mute-audio and automation-infobar flags.
+		// Removes the headless, mute-audio and automation-infobar flags;
+		// mute-audio is put back below.
 		opts = append(opts, chromedp.VisibleWindow)
 	}
 	opts = append(opts,
+		// VisibleWindow drops this, and without it a headed bot plays the
+		// meeting through the operator's speakers, where their own microphone
+		// can feed it back into the call as echo. Captions are made by Meet's
+		// servers, so the bot loses nothing by not hearing the audio.
+		chromedp.Flag("mute-audio", true),
 		// Meet turns automated browsers away; these hide navigator.webdriver.
 		chromedp.Flag("enable-automation", false),
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
