@@ -1,0 +1,444 @@
+# The default glossary: Postgres and its ecosystem, as spoken at a conference.
+#
+# ORDER MATTERS. The model will only accept a few hundred characters of prompt,
+# and it is filled from the top of this file downwards. Terms above the cut
+# bias what the model hears; terms below it are still corrected in the
+# transcript afterwards, they simply do not help it hear them in the first
+# place. The listener logs how many made the prompt at startup, and
+# `ears-listener --print-vocabulary` prints the whole list in this order.
+#
+# So the top section is the jargon most worth getting right: things said
+# constantly in a Postgres talk, that Whisper reliably mangles. Everything
+# after it is the long tail.
+#
+# Blank lines and # comments are ignored. One term per line.
+#
+# A note on what gets corrected in the transcript, because it governs what is
+# safe to put here. Only identifiers have their spelling imposed: a term with
+# an internal capital, an underscore, a digit or a dot, or one the model has
+# visibly broken into pieces. Ordinary words and phrases are left as the model
+# capitalised them, so listing "logical replication" cannot take the capital
+# off the front of a sentence that begins with it. Terms written in all capitals
+# are never used to rewrite a lower-case word, which is what keeps GIN, TOAST
+# and HOT from turning gin, toast and hot into index internals.
+
+# ---------------------------------------------------------------------------
+# Said constantly, and reliably mangled. These earn their place in the prompt.
+# ---------------------------------------------------------------------------
+PostgreSQL
+Postgres
+pgEdge
+Spock
+spockctrl
+Snowflake
+LOLOR
+ACE
+psql
+pgAdmin
+pg_dump
+pg_dumpall
+pg_restore
+pg_basebackup
+pg_upgrade
+pg_stat_statements
+pg_stat_activity
+pg_hba.conf
+postgresql.conf
+PgBouncer
+pgBackRest
+Patroni
+pgvector
+PostGIS
+libpq
+PL/pgSQL
+repset
+replication set
+logical replication
+streaming replication
+replication slot
+multi-master
+last-write-wins
+conflict resolution
+hot standby
+failover
+switchover
+autovacuum
+shared_buffers
+work_mem
+wal_level
+MVCC
+JSONB
+Slonik Ears
+
+# ---------------------------------------------------------------------------
+# Everything below this point is corrected in the transcript but is unlikely
+# to reach the prompt. Add anything you particularly care about nearer the top.
+# ---------------------------------------------------------------------------
+
+# pgEdge products, extensions and tools, as named at docs.pgedge.com
+pgEdge Distributed Postgres
+pgEdge Enterprise Postgres
+pgEdge Platform
+pgEdge Cloud
+pgEdge Control Plane
+pgEdge Ansible
+pgEdge Container
+pgEdge Helm
+pgEdge Enterprise Packages
+SafeSession
+ColdFront
+Radar
+pgEdge Anonymizer
+pgEdge Loadgen
+AI DBA Workbench
+pgEdge Postgres MCP Server
+pgEdge RAG Server
+pgEdge Docloader
+pgEdge Vectorizer
+pg_tokenizer
+pg_vectorize
+vchord_bm25
+pg_semantic_cache
+pgvolvra
+pg-healthcheck
+pgedge-mcp-bridge
+
+# Spock and its vocabulary
+spock.repset_add_table
+spock.repset_add_all_tables
+repset-create
+repset-add-table
+sub-add-repset
+replicate-ddl
+subscriber
+provider node
+replication origin
+delta-apply
+column-level conflict resolution
+
+# Client and server programs
+pg_ctl
+pg_isready
+pg_config
+pg_controldata
+pg_resetwal
+pg_rewind
+pg_receivewal
+pg_recvlogical
+pg_waldump
+pg_verifybackup
+pg_amcheck
+pg_checksums
+pg_createsubscriber
+pg_combinebackup
+pgbench
+initdb
+createdb
+dropdb
+createuser
+dropuser
+reindexdb
+vacuumdb
+clusterdb
+vacuumlo
+oid2name
+postmaster
+pgindent
+
+# Catalogues, statistics views and the data directory
+pg_class
+pg_attribute
+pg_index
+pg_namespace
+pg_proc
+pg_type
+pg_roles
+pg_authid
+pg_database
+pg_settings
+pg_locks
+pg_indexes
+pg_constraint
+pg_tablespace
+pg_extension
+pg_publication
+pg_subscription
+pg_replication_slots
+pg_replication_origin
+pg_stat_replication
+pg_stat_database
+pg_stat_user_tables
+pg_stat_user_indexes
+pg_stat_all_tables
+pg_stat_bgwriter
+pg_stat_wal
+pg_stat_io
+pg_stat_ssl
+pg_stat_progress_vacuum
+pg_stat_progress_basebackup
+pg_statio_user_tables
+pg_buffercache
+pg_prepared_xacts
+pg_wal
+pg_xact
+pg_commit_ts
+pg_tblspc
+pg_toast
+pg_multixact
+pg_ident.conf
+postgresql.auto.conf
+recovery.signal
+standby.signal
+PGDATA
+
+# Extensions
+pg_partman
+pg_cron
+pg_stat_monitor
+pgmq
+pldebugger
+system_stats
+supautils
+pg_repack
+pg_squeeze
+pg_trgm
+pg_bigm
+pg_hint_plan
+pg_freespacemap
+pg_visibility
+pg_prewarm
+pg_walinspect
+pgAudit
+pgcrypto
+pgrowlocks
+pgstattuple
+postgres_fdw
+file_fdw
+dblink
+hstore
+ltree
+citext
+isn
+cube
+seg
+tablefunc
+intarray
+earthdistance
+pageinspect
+amcheck
+bloom
+btree_gin
+btree_gist
+sslinfo
+unaccent
+uuid-ossp
+plpython3u
+plperl
+pltcl
+hypopg
+orafce
+pgRouting
+TimescaleDB
+Citus
+pglogical
+pgactive
+plprofiler
+plpgsql_check
+
+# Connection pooling, high availability and backup
+repmgr
+pgpool-II
+PgCat
+Odyssey
+Stolon
+pg_auto_failover
+WAL-G
+Barman
+pgBadger
+pgCenter
+pgmetrics
+check_postgres
+PostgREST
+psycopg2
+Barman Cloud Plugin
+HAProxy
+Keepalived
+etcd
+Consul
+ZooKeeper
+Kubernetes
+CloudNativePG
+StackGres
+Zalando
+
+# Configuration parameters
+max_connections
+maintenance_work_mem
+effective_cache_size
+effective_io_concurrency
+random_page_cost
+seq_page_cost
+max_wal_size
+min_wal_size
+wal_buffers
+wal_compression
+wal_keep_size
+synchronous_commit
+synchronous_standby_names
+archive_mode
+archive_command
+restore_command
+recovery_target_time
+hot_standby_feedback
+max_replication_slots
+max_wal_senders
+max_worker_processes
+max_parallel_workers
+max_parallel_workers_per_gather
+autovacuum_vacuum_scale_factor
+autovacuum_naptime
+vacuum_freeze_min_age
+vacuum_cost_delay
+checkpoint_timeout
+checkpoint_completion_target
+default_statistics_target
+statement_timeout
+idle_in_transaction_session_timeout
+lock_timeout
+deadlock_timeout
+log_min_duration_statement
+track_io_timing
+jit
+huge_pages
+temp_buffers
+listen_addresses
+ssl_cert_file
+search_path
+timezone
+lc_collate
+
+# Concepts and internals
+write-ahead log
+point-in-time recovery
+transaction ID wraparound
+visibility map
+free space map
+index-only scan
+bitmap heap scan
+sequential scan
+nested loop join
+hash join
+merge join
+hash aggregate
+parallel append
+query planner
+query plan
+EXPLAIN ANALYZE
+buffer cache
+checkpointer
+background writer
+walsender
+walreceiver
+archiver
+autovacuum launcher
+table bloat
+index bloat
+dead tuple
+heap-only tuple
+tuple visibility
+transaction id
+subtransaction
+prepared transaction
+two-phase commit
+advisory lock
+row-level security
+security barrier
+security definer
+generated column
+identity column
+foreign data wrapper
+common table expression
+window function
+materialised view
+declarative partitioning
+partition pruning
+partitionwise join
+collation
+operator class
+access method
+extended statistics
+sequence caching
+serialisable snapshot isolation
+repeatable read
+read committed
+serialisation failure
+deadlock
+connection pooling
+prepared statement
+bind parameter
+listen notify
+large object
+logical decoding
+commit timestamp
+quorum
+split-brain
+witness node
+cascading replication
+synchronous replication
+delayed standby
+promote
+base backup
+incremental backup
+continuous archiving
+vacuum freeze
+aggressive vacuum
+anti-wraparound vacuum
+toast table
+fillfactor
+clustering
+reindex concurrently
+create index concurrently
+
+# Acronyms and initialisms. In capitals, so they are never used to rewrite an
+# ordinary lower-case word: gin, toast, hot and brin stay as spoken.
+WAL
+XID
+DDL
+DML
+DCL
+ACID
+CTE
+RLS
+PITR
+FDW
+FSM
+GIN
+GIST
+BRIN
+HOT
+TOAST
+LSN
+OID
+TID
+CTID
+JIT
+SSI
+2PC
+RDBMS
+ORM
+UUID
+JSON
+XML
+YAML
+TLS
+SSL
+SASL
+SCRAM
+GSSAPI
+LDAP
+PAM
+IOPS
+NUMA
+ZFS
+XFS
+EBS
