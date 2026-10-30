@@ -22,7 +22,7 @@ func session(t *testing.T, sc fakemeet.Scenario, admit time.Duration) (*Session,
 	}
 	srv := fakemeet.NewWithScenario(sc)
 	t.Cleanup(srv.Close)
-	b, err := browser.Launch(context.Background(), browser.Options{ProfileDir: t.TempDir(), ChromePath: path, Headless: true})
+	b, err := browser.Launch(context.Background(), browser.Options{ProfileDir: t.TempDir(), ChromePath: path, Headless: true, FakeDevices: true})
 	if err != nil {
 		t.Fatal(err)
 	}

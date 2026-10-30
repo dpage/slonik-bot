@@ -27,6 +27,10 @@ type Options struct {
 	ChromePath string // "" means Find("")
 	Headless   bool
 	Logger     *slog.Logger // nil means slog.Default()
+	// FakeDevices gives Chrome a fake microphone and camera, for tests on
+	// machines with none: without a device Chrome reports NotFoundError
+	// before it checks the permission. It grants nothing.
+	FakeDevices bool
 }
 
 // Browser is a running Chrome instance with one open tab.
@@ -89,6 +93,9 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 	if runtime.GOOS == "linux" {
 		// No keyring in a container or headless VM.
 		opts = append(opts, chromedp.Flag("password-store", "basic"))
+	}
+	if o.FakeDevices {
+		opts = append(opts, chromedp.Flag("use-fake-device-for-media-stream", true))
 	}
 
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, opts...)
