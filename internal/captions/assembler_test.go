@@ -67,10 +67,22 @@ func TestAssemblerIdle(t *testing.T) {
 	if len(s.got) != 1 {
 		t.Fatal("not finalised after idle")
 	}
-	// A later update to the same block id starts a new utterance.
+	a.Tick(at(8))
+	if len(s.got) != 1 {
+		t.Fatal("a quiet block was emitted twice")
+	}
+	// Meet adds to the same block when the speaker resumes after a pause; the
+	// new utterance holds only the words said since.
 	a.Observe(Event{Block: 1, Speaker: "Alice Example", Text: "Still here and more"}, at(10))
 	a.Flush(at(11))
-	if len(s.got) != 2 || s.got[1].Text != "Still here and more" {
+	if len(s.got) != 2 || s.got[1].Text != "and more" || !s.got[1].Start.Equal(at(10)) {
+		t.Fatalf("%+v", s.got)
+	}
+	// A quiet block that leaves the page has nothing more to emit.
+	a.Observe(Event{Block: 2, Speaker: "Bob Example", Text: "Done"}, at(12))
+	a.Tick(at(16))
+	a.Observe(Event{Block: 2, Removed: true}, at(17))
+	if len(s.got) != 3 {
 		t.Fatalf("%+v", s.got)
 	}
 }

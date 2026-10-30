@@ -23,10 +23,14 @@ type block struct {
 	speaker    string
 	start, end time.Time
 	text       string
+	sent       int  // words of text already emitted
+	quiet      bool // emitted on going quiet; the next change starts a new utterance
 }
 
 // Assembler holds the caption blocks still on screen and emits each as an
-// utterance once Meet removes it, it goes quiet, or the speaker moves on.
+// utterance once Meet removes it, it goes quiet, or the speaker moves on. A
+// block that goes quiet stays open, because Meet carries on adding to it when
+// the same speaker resumes; only the words added since are emitted then.
 // It is not safe for concurrent use.
 type Assembler struct {
 	idle   time.Duration
@@ -66,17 +70,21 @@ func (a *Assembler) Observe(ev Event, now time.Time) {
 		b.speaker = ev.Speaker
 	}
 	if merged := mergeText(b.text, ev.Text); merged != b.text {
+		if b.quiet {
+			b.quiet = false
+			b.start = now
+		}
 		b.text = merged
 		b.end = now
 	}
 }
 
-// Tick finalises blocks whose text has not changed for at least the idle
-// period.
+// Tick emits blocks whose text has not changed for at least the idle period.
 func (a *Assembler) Tick(now time.Time) {
 	for _, id := range a.ids() {
-		if now.Sub(a.blocks[id].end) >= a.idle {
-			a.finalise(id)
+		if b := a.blocks[id]; !b.quiet && now.Sub(b.end) >= a.idle {
+			a.send(b)
+			b.quiet = true
 		}
 	}
 }
@@ -99,14 +107,27 @@ func (a *Assembler) ids() []int {
 	return ids
 }
 
-// finalise emits a block and forgets it, so that a later event reusing the id
-// starts a new utterance rather than rewriting one already emitted.
+// finalise emits what is left of a block and forgets it, so that a later
+// event reusing the id starts a new utterance rather than rewriting one
+// already emitted.
 func (a *Assembler) finalise(id int) {
 	b := a.blocks[id]
 	delete(a.blocks, id)
-	if text := strings.TrimSpace(b.text); text != "" {
-		a.emit(transcript.Utterance{Speaker: b.speaker, Start: b.start, End: b.end, Text: text})
+	if !b.quiet {
+		a.send(b)
 	}
+}
+
+// send emits the words of a block not emitted before. Meet may revise words
+// already emitted, so this counts words rather than matching them; a revision
+// that changes the count can cost or repeat a word at the join.
+func (a *Assembler) send(b *block) {
+	words := strings.Fields(b.text)
+	if len(words) <= b.sent {
+		return
+	}
+	a.emit(transcript.Utterance{Speaker: b.speaker, Start: b.start, End: b.end, Text: strings.Join(words[b.sent:], " ")})
+	b.sent = len(words)
 }
 
 func normalise(w string) string {
