@@ -73,6 +73,9 @@ const (
 	defaultIdle  = 4 * time.Second
 	leaveTimeout = 10 * time.Second
 	eventBuffer  = 256
+	// pollTimeoutFactor bounds one Status or Participants call, in poll
+	// intervals.
+	pollTimeoutFactor = 3
 )
 
 // ErrNoCaptions is returned when the meeting ended without a single caption.
@@ -231,11 +234,20 @@ func watch(ctx context.Context, call Call, cfg config.Config, started time.Time,
 		case now := <-ticker.C:
 			asm.Tick(now)
 
-			st, err := call.Status(ctx)
+			// Each poll is bounded, so that a page which has stopped
+			// answering cannot hold up the alone and max duration checks.
+			pctx, cancel := context.WithTimeout(ctx, poll*pollTimeoutFactor)
+			st, err := call.Status(pctx)
+			// chromedp reports a lost browser as an error wrapping
+			// context.Canceled, so the contexts decide what an error
+			// means, not its type.
+			slow := err != nil && pctx.Err() != nil
+			cancel()
 			switch {
-			case err != nil && errors.Is(err, context.Canceled):
-				// The next pass reports the interruption.
-				continue
+			case err != nil && ctx.Err() != nil:
+				return reasonInterrupted
+			case slow:
+				log.Debug("the meeting page did not answer in time", "error", err)
 			case err != nil:
 				log.Warn("could not read the meeting page; assuming the browser has closed", "error", err)
 				return reasonBrowserGone
@@ -245,10 +257,17 @@ func watch(ctx context.Context, call Call, cfg config.Config, started time.Time,
 				return reasonRemoved
 			}
 
-			people, err := call.Participants(ctx)
-			if err != nil {
+			var people []string
+			if !slow {
+				pctx, cancel := context.WithTimeout(ctx, poll*pollTimeoutFactor)
+				people, err = call.Participants(pctx)
+				cancel()
+			}
+			switch {
+			case slow:
+			case err != nil:
 				log.Debug("reading the participants", "error", err)
-			} else {
+			default:
 				for _, p := range people {
 					if p != "" {
 						seen[p] = true
@@ -308,7 +327,11 @@ func finish(ctx context.Context, dir, jsonl string, m transcript.Meeting, us []t
 		if werr := write(dir, m, us, nil); werr != nil {
 			return false, errors.Join(werr, fmt.Errorf("bot: summary failed: %w", err))
 		}
-		return false, fmt.Errorf("bot: summary failed (%w); the transcript is saved, run: slonik-bot summarise %s", err, jsonl)
+		retry := "slonik-bot summarise " + jsonl
+		if filepath.Clean(dir) != filepath.Dir(jsonl) {
+			retry = "slonik-bot summarise --out " + dir + " " + jsonl
+		}
+		return false, fmt.Errorf("bot: summary failed (%w); the transcript is saved, run: %s", err, retry)
 	}
 	if err := write(dir, m, us, r); err != nil {
 		return false, err

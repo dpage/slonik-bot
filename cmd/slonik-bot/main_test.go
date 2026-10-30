@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dpage/slonik-bot/internal/bot"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -129,5 +132,38 @@ func TestSummariseMissingConfigIsAnError(t *testing.T) {
 	code := run([]string{"summarise", "--config", filepath.Join(t.TempDir(), "absent.yaml"), "transcript.jsonl"}, &out, &errb)
 	if code != 1 {
 		t.Fatalf("exit %d stderr %q", code, errb.String())
+	}
+}
+
+// login always shows the window, but accepts --headless rather than failing.
+func TestLoginAcceptsHeadless(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := run([]string{"login", "--headless", "extra"}, &out, &errb)
+	if code != 2 || !strings.Contains(errb.String(), "takes no arguments") {
+		t.Fatalf("exit %d stderr %q", code, errb.String())
+	}
+}
+
+func TestFailHasOnePrefix(t *testing.T) {
+	var errb bytes.Buffer
+	if code := fail(&errb, errors.New("bot: summary failed")); code != 1 || errb.String() != "slonik-bot: summary failed\n" {
+		t.Fatalf("exit %d stderr %q", code, errb.String())
+	}
+}
+
+func TestJoinResultNamesTheFolder(t *testing.T) {
+	dir := filepath.Join("notes", "2026-10-30-abc-defg-hij")
+	var out, errb bytes.Buffer
+	if code := joinResult(bot.Outcome{Dir: dir, Reason: "ended"}, bot.ErrNoCaptions, &out, &errb); code != 1 || !strings.Contains(errb.String(), dir) {
+		t.Fatalf("exit %d stderr %q", code, errb.String())
+	}
+	// No folder is named when the bot never got as far as recording.
+	errb.Reset()
+	if code := joinResult(bot.Outcome{Dir: dir}, errors.New("meet: not admitted to the meeting"), &out, &errb); code != 1 || strings.Contains(errb.String(), dir) {
+		t.Fatalf("exit %d stderr %q", code, errb.String())
+	}
+	errb.Reset()
+	if code := joinResult(bot.Outcome{Dir: dir, Reason: "ended", Summarised: true}, nil, &out, &errb); code != 0 || !strings.Contains(out.String(), dir) {
+		t.Fatalf("exit %d stdout %q", code, out.String())
 	}
 }

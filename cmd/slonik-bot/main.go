@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -143,8 +144,10 @@ func (c *common) load() (config.Config, error) {
 	return config.Load(c.config, c.set("config"))
 }
 
+// fail reports err and returns the runtime failure exit code. The bot
+// package's own prefix is dropped, since "slonik-bot: bot:" says nothing more.
 func fail(stderr io.Writer, err error) int {
-	fmt.Fprintf(stderr, "slonik-bot: %v\n", err)
+	fmt.Fprintf(stderr, "slonik-bot: %s\n", strings.TrimPrefix(err.Error(), "bot: "))
 	return exitFailure
 }
 
@@ -236,15 +239,26 @@ func join(args []string, stdout, stderr io.Writer) int {
 		NoSummary: *noSummary,
 		Logger:    log,
 	}, bot.Deps{Dial: dial, LLM: llm})
-	if err != nil {
-		if errors.Is(err, meet.ErrNotSignedIn) {
-			fmt.Fprintln(stderr, "slonik-bot: the bot's Chrome profile is not signed in to Google; run: slonik-bot login")
-			return exitFailure
-		}
-		return fail(stderr, err)
+	return joinResult(out, err, stdout, stderr)
+}
+
+// joinResult reports how bot.Run went and returns the exit code. Once the
+// bot has recorded anything, the meeting folder is named even on failure,
+// since the transcript in it is still worth having.
+func joinResult(out bot.Outcome, err error, stdout, stderr io.Writer) int {
+	if err == nil {
+		fmt.Fprintf(stdout, "Notes written to %s (the bot stopped because: %s)\n", out.Dir, out.Reason)
+		return exitOK
 	}
-	fmt.Fprintf(stdout, "Notes written to %s (the bot stopped because: %s)\n", out.Dir, out.Reason)
-	return exitOK
+	if errors.Is(err, meet.ErrNotSignedIn) {
+		fmt.Fprintln(stderr, "slonik-bot: the bot's Chrome profile is not signed in to Google; run: slonik-bot login")
+		return exitFailure
+	}
+	code := fail(stderr, err)
+	if out.Reason != "" {
+		fmt.Fprintf(stderr, "slonik-bot: the meeting folder is %s (the bot stopped because: %s)\n", out.Dir, out.Reason)
+	}
+	return code
 }
 
 func summarise(args []string, stdout, stderr io.Writer) int {
@@ -292,6 +306,9 @@ func summarise(args []string, stdout, stderr io.Writer) int {
 
 func login(args []string, stdout, stderr io.Writer) int {
 	c := newFlags("login", "login [flags]", stderr, false, "")
+	// Accepted so that it can be passed alongside join's flags; login always
+	// shows the window, because somebody has to sign in.
+	c.fs.Bool("headless", false, "ignored: login always shows the Chrome window")
 	pos, code := c.parse(args)
 	if code >= 0 {
 		return code

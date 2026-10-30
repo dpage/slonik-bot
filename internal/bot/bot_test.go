@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,8 @@ type fakeCall struct {
 	participants []string
 	captionsErr  error
 	chatErr      error
+	statusErr    error // returned by every Status call
+	statusHang   bool  // Status blocks until its context ends
 	start        time.Time
 	chat, lang   string
 	left, closed bool
@@ -50,7 +53,14 @@ func (f *fakeCall) Participants(context.Context) ([]string, error) {
 	defer f.mu.Unlock()
 	return f.participants, nil
 }
-func (f *fakeCall) Status(context.Context) (meet.Status, error) {
+func (f *fakeCall) Status(ctx context.Context) (meet.Status, error) {
+	if f.statusHang {
+		<-ctx.Done()
+		return meet.InCall, ctx.Err()
+	}
+	if f.statusErr != nil {
+		return meet.InCall, f.statusErr
+	}
 	if f.endAfter > 0 && time.Since(f.start) > f.endAfter {
 		return meet.Ended, nil
 	}
@@ -218,5 +228,57 @@ func TestRunUnnamedParticipantsAreNotAlone(t *testing.T) {
 	m, _ := transcript.ReadMeeting(filepath.Join(o.OutDir, "meeting.json"))
 	if strings.Join(m.Participants, ",") != "Alice Example,Bob Example" {
 		t.Fatalf("participants %q", m.Participants)
+	}
+}
+
+// chromedp reports a lost browser as an error wrapping context.Canceled even
+// though the caller's context is still live.
+func TestRunBrowserClosed(t *testing.T) {
+	o := opts(t)
+	o.NoSummary = true
+	call := &fakeCall{script: script, participants: []string{"Alice Example"}, statusErr: fmt.Errorf("lost connection: %w", context.Canceled)}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	out, _ := Run(ctx, o, Deps{Dial: dial(call)})
+	if out.Reason != "browser closed" || call.left || time.Since(start) > time.Second {
+		t.Fatalf("%+v left=%v after %s", out, call.left, time.Since(start))
+	}
+}
+
+// A page that stops answering must not stop the bot from leaving on time.
+func TestRunMaxDurationWhilstStatusHangs(t *testing.T) {
+	o := opts(t)
+	o.NoSummary = true
+	o.Config.MaxDuration = 150 * time.Millisecond
+	call := &fakeCall{script: script, participants: []string{"Alice Example"}, statusHang: true}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	out, _ := Run(ctx, o, Deps{Dial: dial(call)})
+	if out.Reason != "max duration" || !call.left || time.Since(start) > time.Second {
+		t.Fatalf("%+v left=%v after %s", out, call.left, time.Since(start))
+	}
+}
+
+func TestSummariseFileRetryHintNamesOutDir(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "transcript.jsonl")
+	w, err := transcript.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	w.Append(transcript.Utterance{Speaker: "Alice Example", Start: now, End: now, Text: "Hello."})
+	w.Close()
+
+	out := filepath.Join(t.TempDir(), "elsewhere")
+	err = SummariseFile(context.Background(), p, out, &fakeLLM{err: errors.New("overloaded")})
+	if err == nil || !strings.Contains(err.Error(), "slonik-bot summarise --out "+out+" "+p) {
+		t.Fatalf("%v", err)
+	}
+	err = SummariseFile(context.Background(), p, "", &fakeLLM{err: errors.New("overloaded")})
+	if err == nil || strings.Contains(err.Error(), "--out") || !strings.Contains(err.Error(), "slonik-bot summarise "+p) {
+		t.Fatalf("%v", err)
 	}
 }

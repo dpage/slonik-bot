@@ -35,14 +35,28 @@ func TestE2E(t *testing.T) {
 	o := Options{Config: cfg, Code: "abc-defg-hij", OutDir: t.TempDir(), Poll: 100 * time.Millisecond, Idle: time.Second}
 
 	// The meeting is scripted once the bot has posted its notice, which it
-	// does after the caption observer is in place.
+	// does after the caption observer is in place. The script stops, and is
+	// waited for, when the test ends, before the server closes.
+	scriptCtx, stopScript := context.WithCancel(context.Background())
+	scriptDone := make(chan struct{})
+	t.Cleanup(func() {
+		stopScript()
+		<-scriptDone
+	})
+	pause := func(d time.Duration) bool {
+		select {
+		case <-scriptCtx.Done():
+			return false
+		case <-time.After(d):
+			return true
+		}
+	}
 	go func() {
-		deadline := time.Now().Add(60 * time.Second)
+		defer close(scriptDone)
 		for len(srv.Chat()) == 0 {
-			if time.Now().After(deadline) {
+			if !pause(50 * time.Millisecond) {
 				return
 			}
-			time.Sleep(50 * time.Millisecond)
 		}
 		srv.SetParticipants("Alice Example", "Bob Example")
 		srv.Caption(1, "Alice Example", "Shall we")
@@ -50,8 +64,9 @@ func TestE2E(t *testing.T) {
 		srv.Caption(2, "Bob Example", "I'll email the venue.")
 		srv.RemoveCaption(1)
 		srv.RemoveCaption(2)
-		time.Sleep(500 * time.Millisecond)
-		srv.End()
+		if pause(500 * time.Millisecond) {
+			srv.End()
+		}
 	}()
 
 	dial := func(ctx context.Context) (Call, error) {
