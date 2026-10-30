@@ -75,6 +75,7 @@ type Session struct {
 	botName      string
 	admitTimeout time.Duration
 	log          *slog.Logger
+	feed         captionFeed // see captions.go
 }
 
 // Dial checks the meeting code and prepares a session in b's tab. It does not
@@ -105,7 +106,10 @@ func Dial(ctx context.Context, b *browser.Browser, baseURL, code string, o Optio
 
 // Close ends the session's own background work. The browser belongs to the
 // caller, so Close leaves it, and the call, alone. It is safe to call twice.
-func (s *Session) Close() error { return nil }
+func (s *Session) Close() error {
+	s.feed.stop()
+	return nil
+}
 
 // bind returns a context for chromedp actions on the tab that also ends when
 // ctx does, because chromedp needs the tab's context and the caller's

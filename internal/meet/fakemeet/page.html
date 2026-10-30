@@ -297,12 +297,20 @@
     if (ev.key === "c") { setCaptions(!captionsOn); }
   });
 
+  // Each command runs in its own task, as each of Meet's updates does, so a
+  // MutationObserver sees every step rather than only the end of a batch.
+  function applyInTurn(cmds, i, done) {
+    if (i >= cmds.length) { done(); return; }
+    try { apply(cmds[i]); } catch (e) { console.error(e); }
+    setTimeout(function () { applyInTurn(cmds, i + 1, done); }, 0);
+  }
+
   function poll(after) {
     fetch("/api/commands?after=" + after)
       .then(function (r) { return r.json(); })
       .then(function (cmds) {
-        cmds.forEach(function (c) { apply(c); after = Math.max(after, c.seq); });
-        poll(after);
+        cmds.forEach(function (c) { after = Math.max(after, c.seq); });
+        applyInTurn(cmds, 0, function () { poll(after); });
       })
       .catch(function () { setTimeout(function () { poll(after); }, 250); });
   }
