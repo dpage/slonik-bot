@@ -338,7 +338,7 @@ func (s *Session) pressJoin(ctx context.Context) error {
 	if gone, err = waitGone(ctx, xpJoin, joinRetryWait); err != nil || gone {
 		return err
 	}
-	return errors.New("meet: the join button did not respond to clicks; see the README's notes on synthetic input")
+	return errors.New("meet: the join button did not respond to clicks; see 'Join button or chat ignored' under Troubleshooting in the README")
 }
 
 // awaitAdmission waits until the bot is in the call, has been refused, or
