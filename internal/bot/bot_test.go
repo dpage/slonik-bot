@@ -76,10 +76,14 @@ type fakeLLM struct {
 	out    string
 	err    error
 	ctxErr error
+	called func() // run at the start of Complete, if set
 }
 
 func (l *fakeLLM) Complete(ctx context.Context, _, _ string, _ map[string]any) (string, error) {
 	l.ctxErr = ctx.Err()
+	if l.called != nil {
+		l.called()
+	}
 	return l.out, l.err
 }
 
@@ -291,6 +295,38 @@ func TestSummariseFile(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "summary.md")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A model call can take minutes, and the process can be killed during it, so
+// the plain transcript is on disk before the model is asked; it is then
+// rewritten with the model's corrections.
+func TestSummariseWritesTranscriptBeforeTheModelCall(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "transcript.jsonl")
+	w, err := transcript.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	w.Append(transcript.Utterance{Speaker: "Alice Example", Start: now, End: now, Text: "The post gress meetup."})
+	w.Close()
+
+	md := filepath.Join(dir, "transcript.md")
+	var before []byte
+	llm := &fakeLLM{
+		out:    `{"title":"T","summary":"S","decisions":[],"action_items":[],"corrections":[{"from":"post gress","to":"Postgres"}]}`,
+		called: func() { before, _ = os.ReadFile(md) },
+	}
+	if err := SummariseFile(context.Background(), p, "", llm); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(before), "The post gress meetup.") {
+		t.Fatalf("transcript.md before the model call:\n%s", before)
+	}
+	after, _ := os.ReadFile(md)
+	if !strings.Contains(string(after), "The Postgres meetup.") {
+		t.Fatalf("transcript.md after the model call:\n%s", after)
 	}
 }
 

@@ -347,12 +347,20 @@ func SummariseFile(ctx context.Context, jsonl, outDir string, llm summary.LLM) e
 // finish writes the notes, with a summary when llm is not nil. If the summary
 // fails the transcript is still written, and the error says how to retry.
 func finish(ctx context.Context, dir, jsonl string, m transcript.Meeting, us []transcript.Utterance, llm summary.LLM) (bool, error) {
+	// Written before the model is asked, because that can take minutes and
+	// the process can be killed meanwhile (a second Ctrl-C, or docker stop
+	// running out of time); the summary then rewrites it with corrections.
+	preErr := write(dir, m, us, nil)
 	if llm == nil {
-		return false, write(dir, m, us, nil)
+		return false, preErr
 	}
 	r, err := summary.Summarise(ctx, llm, m, us)
 	if err != nil {
-		if werr := write(dir, m, us, nil); werr != nil {
+		werr := preErr
+		if werr != nil {
+			werr = write(dir, m, us, nil) // once more, in case it was passing
+		}
+		if werr != nil {
 			return false, errors.Join(werr, fmt.Errorf("bot: summary failed: %w", err))
 		}
 		retry := "slonik-bot summarise " + jsonl
