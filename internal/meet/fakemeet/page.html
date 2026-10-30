@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Meet (fake)</title>
+<style>
+  body { font-family: sans-serif; }
+  [role="region"] { min-height: 40px; border: 1px solid #ccc; }
+  .panel { border: 1px solid #999; padding: 4px; margin: 4px 0; }
+  [role="dialog"] { border: 2px solid #333; padding: 8px; margin: 8px 0; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+"use strict";
+(function () {
+  var root = document.getElementById("root");
+  var sc = {};
+  var state = "init"; // init, notfound, prejoin, lobby, call, left, denied, ended, kicked
+  var micOn = true, camOn = true, captionsOn = false;
+  var participants = [];
+  var deferred = [];
+  var pendingAdmit = false, pendingDeny = false;
+  var region = null, blocks = {};
+  var callEl = null, peopleEl = null, panelEl = null, dialogHolder = null, menuHolder = null;
+
+  function el(tag, attrs, text) {
+    var e = document.createElement(tag);
+    if (attrs) { Object.keys(attrs).forEach(function (k) { e.setAttribute(k, attrs[k]); }); }
+    if (text !== undefined) { e.textContent = text; }
+    return e;
+  }
+
+  function report(kind, value) {
+    var body = { kind: kind };
+    if (value !== undefined) { body.value = value; }
+    return fetch("/api/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+  }
+
+  function show(node) {
+    root.textContent = "";
+    root.appendChild(node);
+  }
+
+  function showText(text, cls) {
+    var d = el("div", cls ? { "class": cls } : null, text);
+    show(d);
+  }
+
+  // ---- pre-join ----
+  function renderPrejoin() {
+    state = "prejoin";
+    var wrap = el("div");
+    var mic = el("div", { role: "button", "aria-label": "Turn off microphone", tabindex: "0" });
+    mic.addEventListener("click", function () {
+      if (micOn) { micOn = false; mic.setAttribute("aria-label", "Turn on microphone"); report("mic-off"); }
+      else { micOn = true; mic.setAttribute("aria-label", "Turn off microphone"); }
+    });
+    var cam = el("div", { role: "button", "aria-label": "Turn off camera", tabindex: "0" });
+    cam.addEventListener("click", function () {
+      if (camOn) { camOn = false; cam.setAttribute("aria-label", "Turn on camera"); report("camera-off"); }
+      else { camOn = true; cam.setAttribute("aria-label", "Turn off camera"); }
+    });
+    wrap.appendChild(mic);
+    wrap.appendChild(cam);
+    var asks = sc.lobby || sc.signedOut;
+    if (sc.signedOut) {
+      wrap.appendChild(el("input", { type: "text", "aria-label": "Your name" }));
+    }
+    var join = el("button");
+    join.appendChild(el("span", null, asks ? "Ask to join" : "Join now"));
+    join.addEventListener("click", function () {
+      if (asks) { enterLobby(); } else { enterCall(); }
+    });
+    wrap.appendChild(join);
+    show(wrap);
+  }
+
+  // ---- lobby ----
+  function enterLobby() {
+    state = "lobby";
+    showText("Asking to be let in…");
+    if (pendingDeny) { pendingDeny = false; deny(); }
+    else if (pendingAdmit) { pendingAdmit = false; enterCall(); }
+  }
+
+  function deny() {
+    state = "denied";
+    showText("Someone in the call denied your request to join");
+  }
+
+  // ---- in call ----
+  function makeRegion() {
+    var r = el("div", { role: "region", "aria-label": "Captions", tabindex: "0" });
+    return r;
+  }
+
+  function setCaptions(on) {
+    captionsOn = on;
+    var btn = callEl && callEl.querySelector("[data-captions-control]");
+    if (btn) {
+      if (sc.captionsMenu) { btn.setAttribute("aria-pressed", on ? "true" : "false"); }
+      else { btn.setAttribute("aria-label", on ? "Turn off captions" : "Turn on captions"); }
+    }
+    report(on ? "captions-on" : "captions-off");
+  }
+
+  function renderPeople() {
+    if (!peopleEl) { return; }
+    var n = participants.length + 1;
+    peopleEl.textContent = "";
+    peopleEl.appendChild(el("button", { "aria-label": "People - " + n + " joined" }));
+    peopleEl.appendChild(el("div", { "data-avatar-count": String(n) }));
+    [sc.selfName].concat(participants).forEach(function (name, i) {
+      var tile = el("div", { "data-participant-id": "p" + i });
+      tile.appendChild(el("button", { "aria-label": "More options for " + name }));
+      peopleEl.appendChild(tile);
+    });
+  }
+
+  function enterCall() {
+    state = "call";
+    callEl = el("div");
+
+    var capBtn;
+    if (sc.captionsMenu) {
+      capBtn = el("button", { "aria-label": "Captions and translation", "aria-pressed": "false" });
+    } else {
+      capBtn = el("button", { "aria-label": "Turn on captions" });
+    }
+    capBtn.setAttribute("data-captions-control", "1");
+    capBtn.addEventListener("click", function () { setCaptions(!captionsOn); });
+    callEl.appendChild(capBtn);
+
+    region = makeRegion();
+    blocks = {};
+    callEl.appendChild(region);
+
+    var chatBtn = el("button", { "aria-label": "Chat with everyone" });
+    panelEl = el("div", { "class": "panel-holder" });
+    chatBtn.addEventListener("click", function () {
+      if (panelEl.firstChild) { panelEl.textContent = ""; return; }
+      var panel = el("div", { "class": "panel" });
+      var ta = el("textarea", { "aria-label": "Send a message" });
+      ta.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          if (ta.value !== "") { var v = ta.value; ta.value = ""; report("chat", v); }
+        }
+      });
+      panel.appendChild(ta);
+      panelEl.appendChild(panel);
+    });
+    callEl.appendChild(chatBtn);
+    callEl.appendChild(panelEl);
+
+    peopleEl = el("div");
+    callEl.appendChild(peopleEl);
+    renderPeople();
+
+    callEl.appendChild(el("button", { "aria-label": "Share screen" }));
+
+    var more = el("button", { "aria-label": "More options" });
+    menuHolder = el("div");
+    dialogHolder = el("div");
+    more.addEventListener("click", function () {
+      if (menuHolder.firstChild) { menuHolder.textContent = ""; return; }
+      var ul = el("ul");
+      var li = el("li");
+      var span = el("span", null, "Settings");
+      li.appendChild(span);
+      li.addEventListener("click", function () { menuHolder.textContent = ""; openSettings(); });
+      ul.appendChild(li);
+      menuHolder.appendChild(ul);
+    });
+    callEl.appendChild(more);
+    callEl.appendChild(menuHolder);
+    callEl.appendChild(dialogHolder);
+
+    var leave = el("button", { "aria-label": "Leave call" });
+    leave.addEventListener("click", function () {
+      state = "left";
+      report("left");
+      showText("You left the meeting");
+    });
+    callEl.appendChild(leave);
+
+    show(callEl);
+    report("joined");
+
+    var replay = deferred;
+    deferred = [];
+    replay.forEach(apply);
+  }
+
+  function openSettings() {
+    dialogHolder.textContent = "";
+    var dlg = el("div", { role: "dialog", "aria-modal": "true" });
+    var tab = el("button", { "aria-label": "Captions" });
+    var body = el("div");
+    tab.addEventListener("click", function () {
+      body.textContent = "";
+      var ul = el("ul", { "aria-label": "Meeting language" });
+      ["English", "French", "German"].forEach(function (lang) {
+        var li = el("li", null, lang);
+        li.addEventListener("click", function () { report("language", lang); });
+        ul.appendChild(li);
+      });
+      body.appendChild(ul);
+    });
+    var close = el("button", { "aria-label": "Close dialog" });
+    close.addEventListener("click", function () { dialogHolder.textContent = ""; });
+    dlg.appendChild(tab);
+    dlg.appendChild(close);
+    dlg.appendChild(body);
+    dialogHolder.appendChild(dlg);
+  }
+
+  // ---- captions ----
+  function cls(name) { return sc.plainCaptions ? null : { "class": name }; }
+
+  function setCaption(n, speaker, text) {
+    var b = blocks[n];
+    if (b) {
+      b.speaker.data = speaker;
+      b.text.data = text;
+      return;
+    }
+    var attrs = cls("nMcdL");
+    var block = el("div", attrs);
+    var img = el("img", { "data-iml": "1", src: "data:," });
+    var who = el("div");
+    var whoSpan = el("span", cls("NWpY1d"));
+    var speakerNode = document.createTextNode(speaker);
+    whoSpan.appendChild(speakerNode);
+    who.appendChild(whoSpan);
+    var body = el("div", cls("ygicle"));
+    var textNode = document.createTextNode(text);
+    body.appendChild(textNode);
+    block.appendChild(img);
+    block.appendChild(who);
+    block.appendChild(body);
+    region.appendChild(block);
+    blocks[n] = { node: block, speaker: speakerNode, text: textNode };
+  }
+
+  // ---- commands ----
+  var inCallOps = { caption: 1, remove: 1, "replace-region": 1 };
+
+  function apply(c) {
+    switch (c.op) {
+    case "admit":
+      if (state === "lobby") { enterCall(); } else if (state === "prejoin" || state === "init") { pendingAdmit = true; }
+      break;
+    case "deny":
+      if (state === "lobby") { deny(); } else if (state === "prejoin" || state === "init") { pendingDeny = true; }
+      break;
+    case "participants":
+      participants = c.names || [];
+      renderPeople();
+      break;
+    case "end":
+      state = "ended";
+      showText("The call ended because everyone left");
+      break;
+    case "kick":
+      state = "kicked";
+      showText("You've been removed from the meeting", "roSPhc");
+      break;
+    default:
+      if (inCallOps[c.op]) {
+        if (state !== "call") { deferred.push(c); return; }
+        if (c.op === "caption") { setCaption(c.block, c.speaker, c.text); }
+        else if (c.op === "remove") {
+          var b = blocks[c.block];
+          if (b) { if (b.node.parentNode) { b.node.parentNode.removeChild(b.node); } delete blocks[c.block]; }
+        } else {
+          var fresh = makeRegion();
+          region.parentNode.replaceChild(fresh, region);
+          region = fresh;
+          blocks = {};
+        }
+      }
+    }
+  }
+
+  document.addEventListener("keydown", function (ev) {
+    if (state !== "call" || ev.ctrlKey || ev.metaKey || ev.altKey) { return; }
+    var t = ev.target;
+    if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT")) { return; }
+    if (ev.key === "c") { setCaptions(!captionsOn); }
+  });
+
+  function poll(after) {
+    fetch("/api/commands?after=" + after)
+      .then(function (r) { return r.json(); })
+      .then(function (cmds) {
+        cmds.forEach(function (c) { apply(c); after = Math.max(after, c.seq); });
+        poll(after);
+      })
+      .catch(function () { setTimeout(function () { poll(after); }, 250); });
+  }
+
+  fetch("/api/scenario")
+    .then(function (r) { return r.json(); })
+    .then(function (s) {
+      sc = s;
+      if (sc.notFound) { state = "notfound"; showText("Check your meeting code"); }
+      else { renderPrejoin(); }
+      poll(0);
+    });
+})();
+</script>
+</body>
+</html>
