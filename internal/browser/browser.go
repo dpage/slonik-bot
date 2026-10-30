@@ -4,10 +4,12 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -95,7 +97,7 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 	if err := chromedp.Do(tabCtx); err != nil {
 		cancelTab()
 		cancelAlloc()
-		return nil, fmt.Errorf("browser: starting Chrome with profile %s: %w; is another slonik-bot or Chrome using this profile?", o.ProfileDir, err)
+		return nil, fmt.Errorf("browser: starting Chrome with profile %s: %w%s", o.ProfileDir, err, startHint(err, o.Headless, runtime.GOOS, os.Getenv))
 	}
 
 	// Browser.LostConnection (chromedp browser.go) closes when the connection
@@ -109,6 +111,24 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 		lost:        c.Browser.LostConnection,
 		log:         log,
 	}, nil
+}
+
+// startHint adds advice to a failed start, for the two causes that can be told
+// apart. A locked profile is recognised by what Chrome prints, which chromedp
+// quotes in its error: "Failed to create .../SingletonLock: File exists" and
+// "Failed to create a ProcessSingleton for your profile directory" (seen by
+// experiment with Chrome on macOS; Linux uses the same process_singleton_posix
+// code). A missing display is checked the way chromedp itself checks it.
+func startHint(err error, headless bool, goos string, getenv func(string) string) string {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "SingletonLock") || strings.Contains(msg, "ProcessSingleton"):
+		return "; another slonik-bot or Chrome is using this profile"
+	case errors.Is(err, chromedp.ErrNoDisplay),
+		goos == "linux" && !headless && getenv("DISPLAY") == "" && getenv("WAYLAND_DISPLAY") == "":
+		return "; a Chrome window needs a display, and neither DISPLAY nor WAYLAND_DISPLAY is set (join can run with --headless instead)"
+	}
+	return ""
 }
 
 // Context returns the chromedp context bound to the first tab.

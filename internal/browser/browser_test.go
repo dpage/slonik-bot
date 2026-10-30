@@ -2,6 +2,8 @@ package browser
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -67,6 +69,60 @@ func TestLaunchMutesAudio(t *testing.T) {
 		}
 		if !slices.Contains(strings.Split(string(args), "\n"), "--mute-audio") {
 			t.Errorf("headless=%v: --mute-audio missing from:\n%s", headless, args)
+		}
+	}
+}
+
+// failingChrome is a stand-in for Chrome that prints output to stderr and exits.
+func failingChrome(t *testing.T, output string) string {
+	t.Helper()
+	exe := filepath.Join(t.TempDir(), "chrome")
+	script := "#!/bin/sh\ncat >&2 <<'EOF'\n" + output + "\nEOF\nexit 21\n"
+	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return exe
+}
+
+// The profile hint is given only when Chrome says the profile is locked. The
+// output is what Chrome 14x on macOS printed for a second launch on a profile
+// already in use (seen by experiment), with the paths made up.
+func TestLaunchProfileInUseHint(t *testing.T) {
+	const locked = `[123:456:1030/141539.595698:ERROR:chrome/browser/process_singleton_posix.cc:349] Failed to create /tmp/profile/SingletonLock: File exists (17)
+[123:456:1030/141539.596998:ERROR:chrome/app/chrome_main_delegate.cc:624] Failed to create a ProcessSingleton for your profile directory. This means that running multiple instances would start multiple browser processes rather than opening a new window in the existing process. Aborting now to avoid profile corruption.`
+	_, err := Launch(context.Background(), Options{ProfileDir: t.TempDir(), ChromePath: failingChrome(t, locked), Headless: true})
+	if err == nil || !strings.Contains(err.Error(), "another slonik-bot or Chrome is using this profile") {
+		t.Fatalf("%v", err)
+	}
+	_, err = Launch(context.Background(), Options{ProfileDir: t.TempDir(), ChromePath: failingChrome(t, "something else went wrong"), Headless: true})
+	if err == nil || strings.Contains(err.Error(), "using this profile") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestStartHintNoDisplay(t *testing.T) {
+	env := func(vars map[string]string) func(string) string {
+		return func(k string) string { return vars[k] }
+	}
+	other := errors.New("chrome failed to start")
+	for _, c := range []struct {
+		name     string
+		err      error
+		headless bool
+		goos     string
+		vars     map[string]string
+		want     bool
+	}{
+		{"linux, no display", other, false, "linux", nil, true},
+		{"chromedp's own check", fmt.Errorf("x: %w", chromedp.ErrNoDisplay), false, "linux", nil, true},
+		{"headless", other, true, "linux", nil, false},
+		{"X11", other, false, "linux", map[string]string{"DISPLAY": ":0"}, false},
+		{"Wayland", other, false, "linux", map[string]string{"WAYLAND_DISPLAY": "wayland-0"}, false},
+		{"macOS", other, false, "darwin", nil, false},
+	} {
+		got := strings.Contains(startHint(c.err, c.headless, c.goos, env(c.vars)), "display")
+		if got != c.want {
+			t.Errorf("%s: display hint %v, want %v", c.name, got, c.want)
 		}
 	}
 }
