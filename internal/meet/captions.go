@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 	"github.com/chromedp/chromedp/kb"
@@ -47,8 +49,11 @@ func (f *captionFeed) stop() {
 // StartCaptions turns Meet's captions on, sets their language, and sends each
 // caption block update to events until the tab goes or Close is called. An
 // empty language, or English, leaves Meet's default. StartCaptions never
-// closes events; the caller owns it. Calling it again does not report
-// anything twice.
+// closes events; the caller owns it.
+//
+// Only the first successful call starts the feed. A later call still makes
+// sure captions are on and sets the language, but its events channel is
+// ignored: every event keeps going to the first call's channel, once.
 func (s *Session) StartCaptions(ctx context.Context, language string, events chan<- captions.Event) error {
 	ctx, done := s.bind(ctx)
 	defer done()
@@ -211,6 +216,13 @@ func (s *Session) startFeed(ctx context.Context, events chan<- captions.Event) e
 	if _, err := chromedp.Call(ctx, runtime.AddBinding, runtime.AddBindingParams{Name: captions.BindingName}); err != nil {
 		return fmt.Errorf("meet: adding the caption binding: %w", err)
 	}
+	// The binding survives a reload of the page but the observer does not,
+	// so have Chrome inject it into every new document too. Its
+	// window.__slonikObserver guard keeps the immediate injection in
+	// StartCaptions from attaching a second observer.
+	if _, err := chromedp.Call(ctx, page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: captions.ObserverJS}); err != nil {
+		return fmt.Errorf("meet: registering the caption observer: %w", err)
+	}
 
 	f.cancel = s.runFeed(events) //nolint:contextcheck // the feed outlives ctx by design; see runFeed
 	f.started = true
@@ -230,28 +242,43 @@ func (s *Session) runFeed(events chan<- captions.Event) context.CancelFunc {
 	return cancel
 }
 
-// forward decodes the binding calls into Events and sends them to events
-// until ctx ends.
+// forward runs the feed, and warns if it stops for any reason but Close,
+// because no captions will be recorded after that.
 func (s *Session) forward(ctx context.Context, calls iter.Seq2[runtime.EventBindingCalled, error], events chan<- captions.Event) {
+	err := pump(ctx, calls, events, s.log)
+	s.feed.mu.Lock()
+	closed := s.feed.closed
+	s.feed.mu.Unlock()
+	if closed {
+		return
+	}
+	if err != nil {
+		s.log.Warn("caption feed stopped; no further captions will be recorded", "error", err)
+		return
+	}
+	s.log.Warn("caption feed stopped because the tab has gone; no further captions will be recorded")
+}
+
+// pump decodes the binding calls into Events and sends them to events until
+// ctx ends, which it returns, or the subscription closes.
+func pump(ctx context.Context, calls iter.Seq2[runtime.EventBindingCalled, error], events chan<- captions.Event, log *slog.Logger) error {
 	for call, err := range calls {
 		if err != nil {
-			if ctx.Err() == nil {
-				s.log.Warn("caption feed stopped", "error", err)
-			}
-			return
+			return err
 		}
 		if call.Name != captions.BindingName {
 			continue
 		}
 		var ev captions.Event
 		if err := json.Unmarshal([]byte(call.Payload), &ev); err != nil {
-			s.log.Debug("dropping a malformed caption event", "payload", call.Payload, "error", err)
+			log.Debug("dropping a malformed caption event", "payload", call.Payload, "error", err)
 			continue
 		}
 		select {
 		case events <- ev:
 		case <-ctx.Done():
-			return
+			return ctx.Err()
 		}
 	}
+	return nil
 }

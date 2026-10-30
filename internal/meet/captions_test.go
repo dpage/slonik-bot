@@ -42,9 +42,8 @@ func checkFlow(t *testing.T, sc fakemeet.Scenario) {
 	if err := s.StartCaptions(ctxT(t), "English", events); err != nil {
 		t.Fatal(err)
 	}
-	if !srv.CaptionsOn() {
-		t.Fatal("captions not turned on")
-	}
+	// The fake page reports over an asynchronous fetch.
+	eventually(t, "captions on", srv.CaptionsOn)
 	if srv.Language() != "" {
 		t.Fatal("opened the settings for English")
 	}
@@ -131,5 +130,85 @@ func TestStartCaptionsTwiceDoesNotDoubleReport(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	if len(evs)+len(events) != 2 {
 		t.Fatalf("expected one update and one removal, got %+v plus %d queued", evs, len(events))
+	}
+}
+
+func TestCaptionsSurviveReload(t *testing.T) {
+	s, srv := joined(t, fakemeet.Scenario{})
+	events := make(chan captions.Event, 64)
+	ctx := ctxT(t)
+	if err := s.StartCaptions(ctx, "", events); err != nil {
+		t.Fatal(err)
+	}
+	// Joining again loads a new document, without the observer that
+	// StartCaptions evaluated in the old one.
+	if err := s.Join(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The injected observer starts before the page has a captions region,
+	// and finds it on its two-second re-attach.
+	time.Sleep(3 * time.Second)
+	srv.Caption(1, "Alice Example", "After the reload.")
+	srv.RemoveCaption(1)
+	checkFinal(t, collect(t, events, removals(1)), "After the reload.")
+	time.Sleep(500 * time.Millisecond)
+	if len(events) != 0 {
+		t.Fatalf("%d further events queued", len(events))
+	}
+}
+
+// startedFeed joins the fake call and starts captions.
+func startedFeed(t *testing.T, sc fakemeet.Scenario) (*fakemeet.Server, chan captions.Event) {
+	t.Helper()
+	s, srv := joined(t, sc)
+	events := make(chan captions.Event, 64)
+	if err := s.StartCaptions(ctxT(t), "", events); err != nil {
+		t.Fatal(err)
+	}
+	return srv, events
+}
+
+// checkFinal checks that evs are the text of one block followed by its
+// removal.
+func checkFinal(t *testing.T, evs []captions.Event, text string) {
+	t.Helper()
+	if len(evs) != 2 || evs[0].Removed || evs[0].Speaker != "Alice Example" || evs[0].Text != text ||
+		!evs[1].Removed || evs[1].Block != evs[0].Block {
+		t.Fatalf("want %q then its removal, got %+v", text, evs)
+	}
+}
+
+func checkAddedAndRemoved(t *testing.T, sc fakemeet.Scenario) {
+	srv, events := startedFeed(t, sc)
+	srv.InOneTask(func() {
+		srv.Caption(1, "Alice Example", "Gone at once.")
+		srv.RemoveCaption(1)
+	})
+	checkFinal(t, collect(t, events, removals(1)), "Gone at once.")
+}
+
+func TestCaptionAddedAndRemovedInOneTask(t *testing.T) {
+	checkAddedAndRemoved(t, fakemeet.Scenario{})
+}
+
+func TestCaptionAddedAndRemovedInOneTaskStructural(t *testing.T) {
+	checkAddedAndRemoved(t, fakemeet.Scenario{PlainCaptions: true})
+}
+
+func TestCaptionUpdatedAndRemovedInOneTask(t *testing.T) {
+	srv, events := startedFeed(t, fakemeet.Scenario{})
+	srv.Caption(1, "Alice Example", "Shall we")
+	first := collect(t, events, func(evs []captions.Event) bool { return len(evs) == 1 })
+	if first[0].Text != "Shall we" {
+		t.Fatalf("%+v", first)
+	}
+	srv.InOneTask(func() {
+		srv.Caption(1, "Alice Example", "Shall we start?")
+		srv.RemoveCaption(1)
+	})
+	evs := collect(t, events, removals(1))
+	checkFinal(t, evs, "Shall we start?")
+	if evs[0].Block != first[0].Block {
+		t.Fatalf("block id changed: %+v then %+v", first, evs)
 	}
 }

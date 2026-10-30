@@ -269,6 +269,9 @@
       state = "ended";
       showText("The call ended because everyone left");
       break;
+    case "batch":
+      (c.cmds || []).forEach(apply);
+      break;
     case "kick":
       state = "kicked";
       showText("You've been removed from the meeting", "roSPhc");

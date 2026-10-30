@@ -35,12 +35,13 @@ type Scenario struct {
 }
 
 type queuedCommand struct {
-	Seq     int      `json:"seq"`
-	Op      string   `json:"op"`
-	Block   int      `json:"block"`
-	Speaker string   `json:"speaker"`
-	Text    string   `json:"text"`
-	Names   []string `json:"names"`
+	Seq     int             `json:"seq"`
+	Op      string          `json:"op"`
+	Block   int             `json:"block"`
+	Speaker string          `json:"speaker"`
+	Text    string          `json:"text"`
+	Names   []string        `json:"names"`
+	Cmds    []queuedCommand `json:"cmds,omitempty"` // for op "batch"
 }
 
 type report struct {
@@ -60,7 +61,8 @@ type Server struct {
 
 	mu         sync.Mutex
 	cmds       []queuedCommand
-	changed    chan struct{} // closed and replaced whenever cmds grows
+	changed    chan struct{}   // closed and replaced whenever cmds grows
+	batch      []queuedCommand // non-nil while InOneTask collects commands
 	joined     bool
 	micOff     bool
 	cameraOff  bool
@@ -100,10 +102,30 @@ func (s *Server) Close() {
 func (s *Server) push(c queuedCommand) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.batch != nil {
+		s.batch = append(s.batch, c)
+		return
+	}
 	c.Seq = len(s.cmds) + 1
 	s.cmds = append(s.cmds, c)
 	close(s.changed)
 	s.changed = make(chan struct{})
+}
+
+// InOneTask runs f, and has the page apply the commands f sends in one
+// JavaScript task, so that a MutationObserver sees only their combined
+// effect. By default each command runs in a task of its own. Commands sent
+// from other goroutines whilst f runs join the batch.
+func (s *Server) InOneTask(f func()) {
+	s.mu.Lock()
+	s.batch = []queuedCommand{}
+	s.mu.Unlock()
+	f()
+	s.mu.Lock()
+	cmds := s.batch
+	s.batch = nil
+	s.mu.Unlock()
+	s.push(queuedCommand{Op: "batch", Cmds: cmds})
 }
 
 // Admit lets the bot in from the lobby.

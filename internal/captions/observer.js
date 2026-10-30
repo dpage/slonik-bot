@@ -8,6 +8,7 @@
   const AVATAR = 'img[data-iml], img[src*="googleusercontent.com"]';
   const ids = new WeakMap();
   const last = new Map(); // id -> {node, speaker, text}
+  const gone = new WeakSet(); // blocks whose removal has been reported
   let nextId = 1;
   let region = null;
   let observer = null;
@@ -45,14 +46,64 @@
     return divs.length ? clean(divs[divs.length - 1].textContent) : '';
   };
 
+  const idOf = (b) => {
+    let id = ids.get(b);
+    if (!id) { id = nextId++; ids.set(b, id); }
+    return id;
+  };
+
+  // A block that has left the page keeps its final text, which may never have
+  // been reported: Meet can change a block and remove it, or add and remove
+  // it, within one task, and the observer only runs after the task. So report
+  // that text, then the removal.
+  const finish = (id, b) => {
+    if (gone.has(b)) return;
+    gone.add(b);
+    const prev = last.get(id);
+    const speaker = speakerOf(b);
+    const text = textOf(b);
+    if (text && (!prev || prev.speaker !== speaker || prev.text !== text)) {
+      send({ block: id, speaker, text });
+    } else if (!prev) {
+      return;
+    }
+    last.delete(id);
+    send({ block: id, removed: true });
+  };
+
+  // The caption blocks among a mutation's removed nodes, including blocks
+  // that left before anything saw them.
+  const removedBlocks = (rec) => {
+    const found = new Set();
+    for (const n of rec.removedNodes) {
+      if (n.nodeType !== Node.ELEMENT_NODE || n.isConnected) continue;
+      if (ids.has(n) || n.matches('.nMcdL') ||
+          (rec.target === region && n.querySelector(AVATAR))) {
+        found.add(n);
+      } else {
+        for (const b of blocksIn(n)) found.add(b);
+      }
+    }
+    return found;
+  };
+
   // Runs inside the MutationObserver callback rather than on a timer, because
   // Chrome throttles timers in background tabs.
-  const scan = () => {
+  const scan = (records) => {
+    for (const rec of records || []) {
+      for (const b of removedBlocks(rec)) finish(idOf(b), b);
+    }
+    // A region that has just left the page is still read for the final state
+    // of its blocks; the loop below then reports them removed, and gone keeps
+    // later scans from reporting them again.
     const seen = new Set();
-    if (region && region.isConnected) {
+    if (region) {
       for (const b of blocksIn(region)) {
-        let id = ids.get(b);
-        if (!id) { id = nextId++; ids.set(b, id); }
+        if (gone.has(b)) {
+          if (!b.isConnected) continue;
+          gone.delete(b); // put back on the page
+        }
+        const id = idOf(b);
         seen.add(id);
         const speaker = speakerOf(b);
         const text = textOf(b);
@@ -64,10 +115,7 @@
       }
     }
     for (const [id, v] of last) {
-      if (!seen.has(id) || !v.node.isConnected) {
-        last.delete(id);
-        send({ block: id, removed: true });
-      }
+      if (!seen.has(id) || !v.node.isConnected) finish(id, v.node);
     }
   };
 
@@ -76,7 +124,12 @@
   const attach = () => {
     const r = findRegion();
     if (r === region) return;
-    if (observer) observer.disconnect();
+    if (observer) {
+      // Changes the old observer has not delivered yet would be lost.
+      scan(observer.takeRecords());
+      observer.disconnect();
+      observer = null;
+    }
     region = r;
     if (r) {
       observer = new MutationObserver(scan);
