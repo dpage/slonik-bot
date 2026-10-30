@@ -1,0 +1,20 @@
+# Build output
+/bin/
+/dist/
+/slonik-bot
+
+# Runtime output (meeting notes and transcripts are never committed)
+/notes/
+*.jsonl
+!/testdata/**/*.jsonl
+
+# Claude working files
+.claude/plans/
+.claude/specs/
+.worktrees/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
