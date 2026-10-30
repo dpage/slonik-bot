@@ -128,7 +128,7 @@ Each meeting gets its own folder under `output_dir`, named by the date it starte
 
 ## Docker
 
-The image bundles Chromium and a virtual display (Xvfb), so it runs on Apple Silicon as well as x86 hosts. Build it with:
+The image bundles Chromium and a virtual display (Xvfb). On macOS, including Apple Silicon, the native binary is the supported route for both `login` and `join`; the image is meant for Linux hosts. Chromium's sandbox is turned off inside the image, because Docker's default seccomp profile blocks it and the container is the isolation boundary instead. Build it with:
 
 ```sh
 docker build -t slonik-bot:dev .
@@ -157,11 +157,13 @@ The container's home directory is `/home/slonik`, so pass the key as an environm
 -v ~/.anthropic-api-key:/home/slonik/.anthropic-api-key:ro
 ```
 
+The container runs as uid 1000. On Linux, bind-mounted host directories must be writable by that user, so create them first and run `chown 1000:1000 ~/.config/slonik-bot-docker ~/slonik-bot-notes`; otherwise Docker creates missing ones owned by root and the bot gets 'permission denied'.
+
 To stop a run, use `docker stop -t 60 <container>` (or press Ctrl-C once in an interactive session and wait), so the bot has time to leave the call and write the summary before Docker kills it.
 
 ### Signing in inside the container
 
-A Chrome profile signed in on macOS cannot be reused inside the Linux container, so sign in inside the container. On a Linux host with an X server, share the display:
+A Chrome profile signed in on macOS cannot be reused inside the Linux container, so sign in inside the container. `login` needs a visible window, so the host's X server must be shared with the container as below; without that, the entrypoint starts Chrome on an invisible virtual display and you cannot sign in. On a Linux host with an X server, share the display:
 
 ```sh
 xhost +local:
