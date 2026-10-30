@@ -1,29 +1,11 @@
-# The default glossary: Postgres and its ecosystem, as spoken at a conference.
-#
-# ORDER MATTERS. The model will only accept a few hundred characters of prompt,
-# and it is filled from the top of this file downwards. Terms above the cut
-# bias what the model hears; terms below it are still corrected in the
-# transcript afterwards, they simply do not help it hear them in the first
-# place. The listener logs how many made the prompt at startup, and
-# `ears-listener --print-vocabulary` prints the whole list in this order.
-#
-# So the top section is the jargon most worth getting right: things said
-# constantly in a Postgres talk, that Whisper reliably mangles. Everything
-# after it is the long tail.
+# The glossary sent to the summary model with every transcript, so that it can
+# recognise Postgres terms that live captions mishear and propose corrections.
+# The whole file is sent, so every term costs a few input tokens per summary.
 #
 # Blank lines and # comments are ignored. One term per line.
-#
-# A note on what gets corrected in the transcript, because it governs what is
-# safe to put here. Only identifiers have their spelling imposed: a term with
-# an internal capital, an underscore, a digit or a dot, or one the model has
-# visibly broken into pieces. Ordinary words and phrases are left as the model
-# capitalised them, so listing "logical replication" cannot take the capital
-# off the front of a sentence that begins with it. Terms written in all capitals
-# are never used to rewrite a lower-case word, which is what keeps GIN, TOAST
-# and HOT from turning gin, toast and hot into index internals.
 
 # ---------------------------------------------------------------------------
-# Said constantly, and reliably mangled. These earn their place in the prompt.
+# Said constantly, and often misheard.
 # ---------------------------------------------------------------------------
 PostgreSQL
 Postgres
@@ -71,8 +53,7 @@ JSONB
 Slonik Ears
 
 # ---------------------------------------------------------------------------
-# Everything below this point is corrected in the transcript but is unlikely
-# to reach the prompt. Add anything you particularly care about nearer the top.
+# The long tail.
 # ---------------------------------------------------------------------------
 
 # pgEdge products, extensions and tools, as named at docs.pgedge.com
@@ -399,8 +380,7 @@ clustering
 reindex concurrently
 create index concurrently
 
-# Acronyms and initialisms. In capitals, so they are never used to rewrite an
-# ordinary lower-case word: gin, toast, hot and brin stay as spoken.
+# Acronyms and initialisms
 WAL
 XID
 DDL

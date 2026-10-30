@@ -9,8 +9,8 @@ The bot joins the call as a signed-in Google Workspace account, turns on Meet's 
 - It works from captions only; it does not hear or record audio or video. If nobody is talking, or Meet cannot caption what is said, there is nothing to transcribe.
 - Captions are in English unless you change `caption_language`.
 - Meet's page markup is not a stable interface and can change without notice. When it does, the bot may fail to find the captions until it is updated.
-- The bot is new, and so far has been tested only against a simulated Meet page rather than real meetings, so expect rough edges.
-- If Meet goes back and edits a caption after a pause in speech, that sentence can appear twice in the transcript.
+- The bot is new and has had only a little testing in real meetings, run from macOS with a visible Chrome window, so expect rough edges. The Docker image has not been tried against a real meeting yet.
+- When someone pauses and Meet then revises the words just before the pause, a word can occasionally be lost or repeated where the two lines of the transcript meet.
 
 ## Privacy
 
@@ -32,7 +32,7 @@ The API key is read from the environment variable named by `llm.api_key_env` (by
 
 Create a dedicated Workspace account for the bot rather than using a personal one.
 
-1. In the Workspace admin console, give the account a clear display name, such as 'Slonik Bot (Meeting Transcriber)' (Meet shows the first and last names joined by a space, so that is first name 'Slonik Bot' and last name '(Meeting Transcriber)'), and set `bot_name` in the configuration to exactly the same name. The bot finds its own tile in the call by that name, and uses it to tell when everyone else has left; if the two differ, the bot counts itself as another person, never notices it is alone (so it stays until `max_duration`), and lists itself as a participant. When the bot joins, it logs the names of the people it can see; if its own name is among them, `bot_name` does not match.
+1. In the Workspace admin console, give the account a clear display name, such as 'Slonik Bot (Meeting Transcriber)' (Meet shows the first and last names joined by a space, so that is first name 'Slonik Bot' and last name '(Meeting Transcriber)'), and set `bot_name` in the configuration to exactly the same name. The bot finds its own tile in the call by that name, and uses it to tell when everyone else has left; if the two differ, the bot counts itself as another person, never notices it is alone (so it stays until `max_duration`), and lists itself as a participant. When the bot joins, it logs how many other people it counts and any names it can read (Meet usually names only the bot's own tile, so the list is often empty); if its own name is among them, `bot_name` does not match.
 2. Make sure the account can join your meetings without knocking, which means it is in the same organisation as the meeting or has been invited. If it is left in the lobby, the bot waits five minutes and then gives up.
 3. Run `slonik-bot login` once (see below) to sign the account in.
 
