@@ -9,12 +9,6 @@
 # ---------------------------------------------------------------------------
 PostgreSQL
 Postgres
-pgEdge
-Spock
-spockctrl
-Snowflake
-LOLOR
-ACE
 psql
 pgAdmin
 pg_dump
@@ -33,7 +27,6 @@ pgvector
 PostGIS
 libpq
 PL/pgSQL
-repset
 replication set
 logical replication
 streaming replication
@@ -50,52 +43,10 @@ work_mem
 wal_level
 MVCC
 JSONB
-Slonik Ears
 
 # ---------------------------------------------------------------------------
 # The long tail.
 # ---------------------------------------------------------------------------
-
-# pgEdge products, extensions and tools, as named at docs.pgedge.com
-pgEdge Distributed Postgres
-pgEdge Enterprise Postgres
-pgEdge Platform
-pgEdge Cloud
-pgEdge Control Plane
-pgEdge Ansible
-pgEdge Container
-pgEdge Helm
-pgEdge Enterprise Packages
-SafeSession
-ColdFront
-Radar
-pgEdge Anonymizer
-pgEdge Loadgen
-AI DBA Workbench
-pgEdge Postgres MCP Server
-pgEdge RAG Server
-pgEdge Docloader
-pgEdge Vectorizer
-pg_tokenizer
-pg_vectorize
-vchord_bm25
-pg_semantic_cache
-pgvolvra
-pg-healthcheck
-pgedge-mcp-bridge
-
-# Spock and its vocabulary
-spock.repset_add_table
-spock.repset_add_all_tables
-repset-create
-repset-add-table
-sub-add-repset
-replicate-ddl
-subscriber
-provider node
-replication origin
-delta-apply
-column-level conflict resolution
 
 # Client and server programs
 pg_ctl
