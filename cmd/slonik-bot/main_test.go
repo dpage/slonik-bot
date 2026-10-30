@@ -15,6 +15,7 @@ import (
 
 	"github.com/dpage/slonik-bot/internal/bot"
 	"github.com/dpage/slonik-bot/internal/browser"
+	"github.com/dpage/slonik-bot/internal/version"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -24,6 +25,20 @@ func TestVersionCommand(t *testing.T) {
 	}
 	if !strings.HasPrefix(out.String(), "slonik-bot ") {
 		t.Fatalf("unexpected output %q", out.String())
+	}
+}
+
+// A plain go build has no commit, and must not print a trailing space.
+func TestVersionWithAndWithoutCommit(t *testing.T) {
+	v, c := version.Version, version.Commit
+	t.Cleanup(func() { version.Version, version.Commit = v, c })
+	version.Version = "1.0.0"
+	for commit, want := range map[string]string{"": "slonik-bot 1.0.0\n", "abc1234": "slonik-bot 1.0.0 abc1234\n"} {
+		version.Commit = commit
+		var out, errb bytes.Buffer
+		if run([]string{"version"}, &out, &errb); out.String() != want {
+			t.Errorf("commit %q: got %q, want %q", commit, out.String(), want)
+		}
 	}
 }
 

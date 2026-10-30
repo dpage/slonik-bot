@@ -59,7 +59,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	switch args[0] {
 	case "version":
-		fmt.Fprintf(stdout, "slonik-bot %s %s\n", version.Version, version.Commit)
+		fmt.Fprintln(stdout, strings.TrimSpace("slonik-bot "+version.Version+" "+version.Commit))
 		return exitOK
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, usage)
