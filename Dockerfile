@@ -14,7 +14,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --uid 1000 slonik \
  && mkdir -p /config /notes \
- && chown slonik:slonik /config /notes
+ && chown slonik:slonik /config /notes \
+ && mkdir -m 1777 /tmp/.X11-unix
 
 # Chromium's sandbox needs unprivileged user namespaces, which Docker's default
 # seccomp profile blocks, so Chromium would refuse to start. The container is
