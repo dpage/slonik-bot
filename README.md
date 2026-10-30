@@ -54,7 +54,7 @@ which writes `bin/slonik-bot`.
 slonik-bot login
 ```
 
-This opens a Chrome window using the bot's own profile (`profile_dir`). Sign in as the bot's account, complete any verification, and close the window. The profile keeps the session, so you only need to do this again if Google signs the account out. `login` always shows the window and ignores `--headless`.
+This opens a Chrome window using the bot's own profile (`profile_dir`). Sign in as the bot's account, complete any verification, and then quit Chrome, or press Ctrl-C in the terminal, which asks Chrome to quit so that it saves the sign-in. On macOS, quit with Cmd-Q: closing the window leaves Chrome running and `login` waiting. The profile keeps the session, so you only need to do this again if Google signs the account out. `login` always shows the window and ignores `--headless`.
 
 ### Join a meeting
 

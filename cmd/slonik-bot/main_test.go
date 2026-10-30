@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dpage/slonik-bot/internal/bot"
+	"github.com/dpage/slonik-bot/internal/browser"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -141,6 +143,27 @@ func TestLoginAcceptsHeadless(t *testing.T) {
 	code := run([]string{"login", "--headless", "extra"}, &out, &errb)
 	if code != 2 || !strings.Contains(errb.String(), "takes no arguments") {
 		t.Fatalf("exit %d stderr %q", code, errb.String())
+	}
+}
+
+// Ctrl-C must not kill Chrome during login: chromedp starts it with
+// exec.CommandContext, so a cancellable context would kill it before Close
+// can ask it to quit and save the new sign-in cookies.
+func TestLoginLaunchesChromeWithoutCancel(t *testing.T) {
+	noKeys(t)
+	var got context.Context
+	orig := launchBrowser
+	t.Cleanup(func() { launchBrowser = orig })
+	launchBrowser = func(ctx context.Context, _ browser.Options) (*browser.Browser, error) {
+		got = ctx
+		return nil, errors.New("not starting Chrome in a test")
+	}
+	var out, errb bytes.Buffer
+	if code := run([]string{"login"}, &out, &errb); code != 1 {
+		t.Fatalf("exit %d stderr %q", code, errb.String())
+	}
+	if got == nil || got.Done() != nil {
+		t.Fatal("login gave Chrome a context that a signal can cancel")
 	}
 }
 

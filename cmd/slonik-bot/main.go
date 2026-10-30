@@ -44,6 +44,9 @@ const (
 
 const loginURL = "https://accounts.google.com/"
 
+// launchBrowser starts Chrome; tests replace it.
+var launchBrowser = browser.Launch
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -219,7 +222,7 @@ func join(args []string, stdout, stderr io.Writer) int {
 
 	// Chrome outlives the first signal, so that the bot can still leave the
 	// call; Close below shuts it down.
-	b, err := browser.Launch(context.WithoutCancel(ctx), browser.Options{
+	b, err := launchBrowser(context.WithoutCancel(ctx), browser.Options{
 		ProfileDir: cfg.ProfileDir,
 		ChromePath: cfg.ChromePath,
 		Headless:   *headless,
@@ -328,8 +331,11 @@ func login(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signalContext()
 	defer stop()
 
-	// Always headed: somebody has to type the password.
-	b, err := browser.Launch(ctx, browser.Options{ProfileDir: cfg.ProfileDir, ChromePath: cfg.ChromePath, Logger: log})
+	// Always headed: somebody has to type the password. Chrome outlives the
+	// signal, as in join: chromedp starts it with exec.CommandContext, so a
+	// cancellable context would kill it on Ctrl-C, losing a sign-in whose
+	// cookies Chrome had not yet saved. Close asks it to quit instead.
+	b, err := launchBrowser(context.WithoutCancel(ctx), browser.Options{ProfileDir: cfg.ProfileDir, ChromePath: cfg.ChromePath, Logger: log})
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -341,7 +347,9 @@ func login(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, fmt.Errorf("opening %s: %w", loginURL, err))
 	}
-	fmt.Fprintln(stdout, "Sign in as the bot's Google account in the Chrome window, then close the window.")
+	// On macOS, closing the last window leaves Chrome running, and Wait only
+	// returns once Chrome exits.
+	fmt.Fprintln(stdout, "Sign in as the bot's Google account in the Chrome window, then quit Chrome (Cmd-Q on macOS, where closing the window leaves it running) or press Ctrl-C here.")
 
 	closed := make(chan struct{})
 	go func() {
@@ -351,6 +359,7 @@ func login(args []string, stdout, stderr io.Writer) int {
 	select {
 	case <-closed:
 	case <-ctx.Done():
+		log.Info("closing Chrome")
 	}
 	return exitOK
 }
