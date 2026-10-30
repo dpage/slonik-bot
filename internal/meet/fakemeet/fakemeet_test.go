@@ -1,12 +1,18 @@
 package fakemeet
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/chromedp/chromedp"
+
+	"github.com/dpage/slonik-bot/internal/browser"
 )
 
 func TestServesPageAndScenario(t *testing.T) {
@@ -79,5 +85,42 @@ func TestCommandsAndReports(t *testing.T) {
 	}
 	if got := s.Chat(); len(got) != 1 || got[0] != "hi" {
 		t.Fatalf("chat %q", got)
+	}
+}
+
+func TestCloseTwice(t *testing.T) {
+	s := New()
+	s.Close()
+	s.Close()
+}
+
+func TestPrejoinControlsAreClickable(t *testing.T) {
+	path := browser.Find("")
+	if path == "" {
+		t.Skip("no Chrome or Chromium found")
+	}
+	b, err := browser.Launch(context.Background(), browser.Options{ProfileDir: t.TempDir(), ChromePath: path, Headless: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	s := New()
+	defer s.Close()
+	ctx, cancel := context.WithTimeout(b.Context(), 30*time.Second)
+	defer cancel()
+	err = chromedp.Do(ctx,
+		chromedp.Navigate(s.URL+"/abc-defg-hij"),
+		chromedp.Click(chromedp.CSS(`[role="button"][aria-label="Turn off microphone"]`)),
+		chromedp.Click(chromedp.CSS(`[role="button"][aria-label="Turn off camera"]`)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for (!s.MicOff() || !s.CameraOff()) && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !s.MicOff() || !s.CameraOff() {
+		t.Fatalf("clicks did not reach the page: mic off %v, camera off %v", s.MicOff(), s.CameraOff())
 	}
 }

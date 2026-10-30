@@ -5,6 +5,7 @@
 <title>Meet (fake)</title>
 <style>
   body { font-family: sans-serif; }
+  [role="button"] { display: inline-block; min-width: 40px; min-height: 40px; border: 1px solid #999; cursor: pointer; }
   [role="region"] { min-height: 40px; border: 1px solid #ccc; }
   .panel { border: 1px solid #999; padding: 4px; margin: 4px 0; }
   [role="dialog"] { border: 2px solid #333; padding: 8px; margin: 8px 0; }
@@ -56,12 +57,12 @@
   function renderPrejoin() {
     state = "prejoin";
     var wrap = el("div");
-    var mic = el("div", { role: "button", "aria-label": "Turn off microphone", tabindex: "0" });
+    var mic = el("div", { role: "button", "aria-label": "Turn off microphone", tabindex: "0" }, "Mic");
     mic.addEventListener("click", function () {
       if (micOn) { micOn = false; mic.setAttribute("aria-label", "Turn on microphone"); report("mic-off"); }
       else { micOn = true; mic.setAttribute("aria-label", "Turn off microphone"); }
     });
-    var cam = el("div", { role: "button", "aria-label": "Turn off camera", tabindex: "0" });
+    var cam = el("div", { role: "button", "aria-label": "Turn off camera", tabindex: "0" }, "Cam");
     cam.addEventListener("click", function () {
       if (camOn) { camOn = false; cam.setAttribute("aria-label", "Turn on camera"); report("camera-off"); }
       else { camOn = true; cam.setAttribute("aria-label", "Turn off camera"); }

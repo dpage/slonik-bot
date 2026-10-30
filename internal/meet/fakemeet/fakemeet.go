@@ -56,6 +56,8 @@ type Server struct {
 	scenario Scenario
 	done     chan struct{}
 
+	closeOnce sync.Once
+
 	mu         sync.Mutex
 	cmds       []queuedCommand
 	changed    chan struct{} // closed and replaced whenever cmds grows
@@ -89,8 +91,10 @@ func NewWithScenario(sc Scenario) *Server {
 
 // Close stops the server, releasing any pending long polls.
 func (s *Server) Close() {
-	close(s.done)
-	s.ts.Close()
+	s.closeOnce.Do(func() {
+		close(s.done)
+		s.ts.Close()
+	})
 }
 
 func (s *Server) push(c queuedCommand) {
