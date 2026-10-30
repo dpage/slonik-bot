@@ -8,7 +8,7 @@ bot_name: "Slonik Bot (Meeting Transcriber)"
 chat_notice: "Slonik Bot is transcribing this call. The summary, action items and transcript will be shared with participants."
 caption_language: "English"
 profile_dir: "~/.config/slonik-bot/chrome-profile"
-chrome_path: ""            # empty: chromedp's own discovery
+chrome_path: ""            # empty: Chrome or Chromium is searched for automatically
 output_dir: "~/slonik-bot-notes"
 max_duration: 4h
 alone_timeout: 60s

@@ -9,6 +9,8 @@ The bot joins the call as a signed-in Google Workspace account, turns on Meet's 
 - It works from captions only; it does not hear or record audio or video. If nobody is talking, or Meet cannot caption what is said, there is nothing to transcribe.
 - Captions are in English unless you change `caption_language`.
 - Meet's page markup is not a stable interface and can change without notice. When it does, the bot may fail to find the captions until it is updated.
+- The bot is new, and so far has been tested only against a simulated Meet page rather than real meetings, so expect rough edges.
+- If Meet goes back and edits a caption after a pause in speech, that sentence can appear twice in the transcript.
 
 ## Privacy
 
@@ -64,6 +66,8 @@ slonik-bot join abc-defg-hij
 
 You can give either the meeting code or the full meeting URL. The bot joins, transcribes until the meeting ends or it is alone for `alone_timeout`, or `max_duration` passes, and then writes the notes.
 
+The `alone_timeout` clock starts as soon as the bot is in the call, so start the bot when the meeting starts rather than several minutes early; otherwise it may decide it has been left alone and leave before anyone arrives.
+
 To stop it yourself, press Ctrl-C once and wait. The bot leaves the call and then writes the summary; a second signal during that can leave Chrome running.
 
 Flags for `join`:
@@ -98,7 +102,7 @@ bot_name: "Slonik Bot (Meeting Transcriber)"
 chat_notice: "Slonik Bot is transcribing this call. The summary, action items and transcript will be shared with participants."
 caption_language: "English"
 profile_dir: "~/.config/slonik-bot/chrome-profile"
-chrome_path: ""            # empty: chromedp's own discovery
+chrome_path: ""            # empty: Chrome or Chromium is searched for automatically
 output_dir: "~/slonik-bot-notes"
 max_duration: 4h
 alone_timeout: 60s
