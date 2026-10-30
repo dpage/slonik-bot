@@ -398,3 +398,63 @@ func TestSummariseFileRetryHintNamesOutDir(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+func savedTranscript(t *testing.T, dir string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "transcript.jsonl")
+	w, err := transcript.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	w.Append(transcript.Utterance{Speaker: "Alice Example", Start: now, End: now, Text: "Hello."})
+	w.Close()
+	return p
+}
+
+// The retry command is printed for copying into a shell, so a path with a
+// space or a quote in it must still come out as one argument.
+func TestSummariseFileRetryHintQuotesPaths(t *testing.T) {
+	p := savedTranscript(t, filepath.Join(t.TempDir(), "Bob's notes"))
+	out := filepath.Join(t.TempDir(), "my notes")
+	err := SummariseFile(context.Background(), p, out, &fakeLLM{err: errors.New("overloaded")})
+	quotedP := "'" + strings.ReplaceAll(p, "'", `'\''`) + "'"
+	want := "slonik-bot summarise --out '" + out + "' " + quotedP
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("want %s in\n%v", want, err)
+	}
+}
+
+// When the notes cannot be written either, the retry command is still given,
+// for once the disk problem is fixed.
+func TestSummariseFileRetryHintSurvivesAWriteFailure(t *testing.T) {
+	p := savedTranscript(t, t.TempDir())
+	blocker := filepath.Join(t.TempDir(), "a-file")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(blocker, "notes") // cannot be created under a file
+	err := SummariseFile(context.Background(), p, out, &fakeLLM{err: errors.New("overloaded")})
+	if err == nil || !strings.Contains(err.Error(), "overloaded") || !strings.Contains(err.Error(), "slonik-bot summarise --out "+out+" "+p) {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	for in, want := range map[string]string{
+		"/home/jane/notes/2026-10-30-abc-defg-hij": "/home/jane/notes/2026-10-30-abc-defg-hij",
+		"/tmp/a+b=c,d@e:f~g":                       "/tmp/a+b=c,d@e:f~g",
+		"/tmp/my notes":                            "'/tmp/my notes'",
+		"/tmp/Bob's":                               `'/tmp/Bob'\''s'`,
+		"/tmp/$HOME":                               "'/tmp/$HOME'",
+		"~jane/notes":                              "'~jane/notes'", // a leading ~ would be expanded
+		"":                                         "''",
+	} {
+		if got := shellQuote(in); got != want {
+			t.Errorf("shellQuote(%q) = %s, want %s", in, got, want)
+		}
+	}
+}

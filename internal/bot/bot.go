@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/dpage/slonik-bot/internal/captions"
@@ -356,16 +357,17 @@ func finish(ctx context.Context, dir, jsonl string, m transcript.Meeting, us []t
 	}
 	r, err := summary.Summarise(ctx, llm, m, us)
 	if err != nil {
+		retry := "slonik-bot summarise " + shellQuote(jsonl)
+		if filepath.Clean(dir) != filepath.Dir(jsonl) {
+			retry = "slonik-bot summarise --out " + shellQuote(dir) + " " + shellQuote(jsonl)
+		}
 		werr := preErr
 		if werr != nil {
 			werr = write(dir, m, us, nil) // once more, in case it was passing
 		}
 		if werr != nil {
-			return false, errors.Join(werr, fmt.Errorf("bot: summary failed: %w", err))
-		}
-		retry := "slonik-bot summarise " + jsonl
-		if filepath.Clean(dir) != filepath.Dir(jsonl) {
-			retry = "slonik-bot summarise --out " + dir + " " + jsonl
+			// transcript.jsonl is still intact, so the retry is worth giving.
+			return false, errors.Join(werr, fmt.Errorf("bot: summary failed (%w); once the notes can be written, run: %s", err, retry))
 		}
 		return false, fmt.Errorf("bot: summary failed (%w); the transcript is saved, run: %s", err, retry)
 	}
@@ -373,6 +375,25 @@ func finish(ctx context.Context, dir, jsonl string, m transcript.Meeting, us []t
 		return false, err
 	}
 	return true, nil
+}
+
+// shellQuote makes s one word for a POSIX shell, so that the printed retry
+// command can be pasted as is. Plain paths are left alone for readability; the
+// rest are single-quoted, which leaves nothing inside special except the
+// single quote itself, written as '\''. A leading ~ is quoted too, since the
+// shell would expand it.
+func shellQuote(s string) string {
+	plain := s != "" && s[0] != '~'
+	for _, c := range s {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("_./-~:+=,@", c)) {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func write(dir string, m transcript.Meeting, us []transcript.Utterance, r *summary.Result) error {
