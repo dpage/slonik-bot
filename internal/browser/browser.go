@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	cdpbrowser "github.com/chromedp/cdproto/browser"
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/chromedp"
 )
 
@@ -76,8 +78,6 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 		// Meet turns automated browsers away; these hide navigator.webdriver.
 		chromedp.Flag("enable-automation", false),
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
-		// Auto-accepts the camera and microphone prompt so it never blocks the pre-join screen.
-		chromedp.Flag("use-fake-ui-for-media-stream", true),
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
 		// Meet's strings in selectors.go are English.
 		chromedp.Flag("lang", "en-US"),
@@ -100,6 +100,12 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 		return nil, fmt.Errorf("browser: starting Chrome with profile %s: %w%s", o.ProfileDir, err, startHint(err, o.Headless, runtime.GOOS, os.Getenv))
 	}
 
+	if err := denyDevices(tabCtx); err != nil {
+		cancelTab()
+		cancelAlloc()
+		return nil, err
+	}
+
 	// Browser.LostConnection (chromedp browser.go) closes when the connection
 	// to the Chrome process drops, which is what happens when it exits.
 	c := chromedp.FromContext(tabCtx)
@@ -111,6 +117,30 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 		lost:        c.Browser.LostConnection,
 		log:         log,
 	}, nil
+}
+
+// denyDevices has Chrome refuse every page the microphone and camera, so the
+// bot cannot send sound or video into a call whatever Meet's buttons are
+// called or do. Browser.setPermission with no origin applies to all origins
+// in the default browser context; the override lasts until Chrome exits, so
+// it is set on every launch, before any page is opened. The names are the
+// Permissions API's ("microphone", "camera"), not the PermissionType values.
+func denyDevices(ctx context.Context) error {
+	err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+		for _, name := range []string{"microphone", "camera"} {
+			if _, err := cdp.Call(ctx, tg, cdpbrowser.SetPermission, cdpbrowser.SetPermissionParams{
+				Permission: &cdpbrowser.PermissionDescriptor{Name: name},
+				Setting:    cdpbrowser.PermissionSettingDenied,
+			}); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+		}
+		return nil
+	}))
+	if err != nil {
+		return fmt.Errorf("browser: denying the microphone and camera: %w", err)
+	}
+	return nil
 }
 
 // startHint adds advice to a failed start, for the two causes that can be told

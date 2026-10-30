@@ -349,10 +349,40 @@
       .catch(function () { setTimeout(function () { poll(after); }, 250); });
   }
 
+  // Asks for the microphone or camera as Meet does, and reports how that
+  // went. The page asks only once the permission already reads "denied", so
+  // that a run without the bot's denial can never open the test machine's
+  // real devices; it reports the permission state instead.
+  function probeDevice(kind, constraints) {
+    if (!navigator.permissions || !navigator.mediaDevices) {
+      report(kind, "unsupported");
+      return;
+    }
+    navigator.permissions.query({ name: kind }).then(function (p) {
+      if (p.state !== "denied") {
+        report(kind, "permission " + p.state);
+        return;
+      }
+      navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+        stream.getTracks().forEach(function (t) { t.stop(); });
+        report(kind, "granted");
+      }, function (e) {
+        report(kind, e.name);
+      });
+    }, function (e) {
+      report(kind, "query failed: " + e.name);
+    });
+  }
+  function probeDevices() {
+    probeDevice("microphone", { audio: true });
+    probeDevice("camera", { video: true });
+  }
+
   fetch("/api/scenario")
     .then(function (r) { return r.json(); })
     .then(function (s) {
       sc = s;
+      probeDevices();
       if (sc.notFound) { state = "notfound"; showText("Check your meeting code"); }
       else { renderPrejoin(); }
       poll(0);

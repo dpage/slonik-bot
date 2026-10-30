@@ -78,8 +78,13 @@ type Server struct {
 	cameraSeq  int
 	captionsOn bool
 	language   string
-	chat       []string
-	left       bool
+	// What the page got when it asked for each device: a DOMException name
+	// such as "NotAllowedError", "granted", or "permission <state>" when it
+	// did not ask because the permission was not denied.
+	micAccess    string
+	cameraAccess string
+	chat         []string
+	left         bool
 }
 
 // New starts a server with the default Scenario.
@@ -198,6 +203,21 @@ func (s *Server) Language() string {
 	return s.language
 }
 
+// MicrophoneAccess and CameraAccess return what the page got when it asked
+// for the device, or "" before it has reported.
+func (s *Server) MicrophoneAccess() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.micAccess
+}
+
+// CameraAccess is MicrophoneAccess for the camera.
+func (s *Server) CameraAccess() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cameraAccess
+}
+
 // Chat returns the chat messages the bot sent.
 func (s *Server) Chat() []string {
 	s.mu.Lock()
@@ -281,6 +301,10 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		if rep.Seq > s.cameraSeq {
 			s.cameraOff, s.cameraSeq = rep.Kind == "camera-off", rep.Seq
 		}
+	case "microphone":
+		s.micAccess = rep.Value
+	case "camera":
+		s.cameraAccess = rep.Value
 	case "captions-on":
 		s.captionsOn = true
 	case "captions-off":

@@ -16,6 +16,8 @@ The bot joins the call as a signed-in Google Workspace account, turns on Meet's 
 
 The bot announces itself: it joins under the account's display name and posts `chat_notice` to the meeting chat, so participants know a transcript is being made. Tell people before you invite it, and follow your organisation's rules on recording meetings.
 
+The bot cannot be heard or seen in the call. On every start it tells Chrome to refuse the microphone and camera to every page, so a request from Meet for either one fails, whatever Meet's buttons are labelled. As a second check, it turns off Meet's own microphone and camera controls before it joins and checks them again once it is in; if it cannot confirm that they are off, it does not join, or leaves straight away.
+
 Everything is kept locally. The only data sent elsewhere is the transcript text, which goes to the summary model you configure. Output folders are created with mode 0700 and the files in them with mode 0600, so other users on the same machine cannot read them.
 
 ## Requirements

@@ -106,6 +106,18 @@ func TestJoinLeavesWhenDevicesStayOnInCall(t *testing.T) {
 	eventually(t, "left the call", srv.Left)
 }
 
+// Chrome itself refuses the page the microphone and camera, so the bot cannot
+// send audio or video whatever Meet's buttons are called.
+func TestPageIsRefusedTheMicrophoneAndCamera(t *testing.T) {
+	_, srv := joined(t, fakemeet.Scenario{})
+	eventually(t, "the page's device requests", func() bool {
+		return srv.MicrophoneAccess() != "" && srv.CameraAccess() != ""
+	})
+	if m, c := srv.MicrophoneAccess(), srv.CameraAccess(); m != "NotAllowedError" || c != "NotAllowedError" {
+		t.Fatalf("microphone %q, camera %q; want NotAllowedError for both", m, c)
+	}
+}
+
 func TestJoinSignedOut(t *testing.T) {
 	s, _ := session(t, fakemeet.Scenario{SignedOut: true}, time.Minute)
 	if err := s.Join(ctxT(t)); !errors.Is(err, ErrNotSignedIn) {
