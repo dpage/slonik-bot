@@ -1,0 +1,62 @@
+# golangci-lint configuration (v2 schema).
+#
+# The aim is a small set of linters that catch real mistakes, not a wall of
+# style complaints that trains everybody to ignore CI.
+
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose     # an undrained HTTP body leaks a connection, and the LLM
+                    # clients make HTTP requests
+    - contextcheck  # dropping a context on the way to Chrome or the LLM would
+                    # mean shutdown stops working
+    - durationcheck # multiplying two durations is never what anybody meant
+    - errorlint     # %w and errors.Is, rather than string comparison
+    - misspell
+    - nilerr
+    - noctx         # every outbound request should carry a context
+    - revive
+    - unconvert
+    - wastedassign
+
+  settings:
+    errcheck:
+      # Formatted writes to stdout or stderr fail only when the terminal has
+      # gone, which nothing here could usefully handle.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (net/http.ResponseWriter).Write
+    misspell:
+      # British English in prose.
+      locale: UK
+    revive:
+      rules:
+        - name: exported
+          # config.Config is the natural name for the package's main type,
+          # so do not complain that it stutters.
+          arguments:
+            - disableStutteringCheck
+        - name: unexported-return
+          disabled: true
+
+  exclusions:
+    generated: lax
+    rules:
+      # Tests may be blunter than production code.
+      - path: _test\.go
+        linters:
+          - bodyclose
+          - errcheck
+          - noctx
+          - revive
+
+formatters:
+  enable:
+    - gofmt
