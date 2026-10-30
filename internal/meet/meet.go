@@ -63,6 +63,7 @@ const (
 	prejoinTimeout      = 30 * time.Second
 	clickTimeout        = 10 * time.Second
 	joinRetryWait       = 5 * time.Second
+	navigateTimeout     = 60 * time.Second
 	chatSentTimeout     = 3 * time.Second
 	justLeaveTimeout    = 2 * time.Second
 )
@@ -129,26 +130,25 @@ func (s *Session) Join(ctx context.Context) error {
 	ctx, done := s.bind(ctx)
 	defer done()
 
-	if err := chromedp.Do(ctx, chromedp.Navigate(s.url)); err != nil {
+	nc, cancel := context.WithTimeout(ctx, navigateTimeout)
+	err := chromedp.Do(nc, chromedp.Navigate(s.url))
+	timedOut := nc.Err() != nil && ctx.Err() == nil
+	cancel()
+	if timedOut {
+		return fmt.Errorf("meet: opening %s: the page did not load within %s", s.url, navigateTimeout)
+	}
+	if err != nil {
 		return fmt.Errorf("meet: opening %s: %w", s.url, err)
 	}
 	if err := s.prejoin(ctx); err != nil {
 		return err
 	}
-	for _, d := range []struct{ what, sel string }{
-		{"microphone button", selMicOff},
-		{"camera button", selCameraOff},
-	} {
-		// A "Turn off" label means the device is on.
-		on, err := present(ctx, d.sel)
-		if err != nil {
-			return err
-		}
-		if on {
-			if err := click(ctx, d.what, d.sel); err != nil {
-				return err
-			}
-		}
+	// A "Turn off" label means the device is on.
+	if err := s.clickIfPresent(ctx, "microphone button", selMicOff); err != nil {
+		return err
+	}
+	if err := s.clickIfPresent(ctx, "camera button", selCameraOff); err != nil {
+		return err
 	}
 	if err := s.pressJoin(ctx); err != nil {
 		return err
@@ -185,19 +185,19 @@ func (s *Session) prejoin(ctx context.Context) error {
 		if t, ok := match(text, textsBlocked); ok {
 			return fmt.Errorf("%w: Meet refused entry (%s)", ErrNotAdmitted, t)
 		}
-		for _, d := range []struct{ what, sel string }{
-			{"consent dialogue button", selConsentOK},
-			{"Got it button", xpGotIt},
-			{"continue without microphone and camera button", xpContinueWithoutDevices},
-		} {
-			shown, err := present(ctx, d.sel)
-			if err != nil {
+		if err := s.clickIfPresent(ctx, "consent dialogue button", selConsentOK); err != nil {
+			return err
+		}
+		if err := s.clickIfPresent(ctx, "Got it button", xpGotIt); err != nil {
+			return err
+		}
+		shown, err := present(ctx, xpContinueWithoutDevices)
+		if err != nil {
+			return err
+		}
+		if shown {
+			if err := click(ctx, "continue without microphone and camera button", xpContinueWithoutDevices); err != nil {
 				return err
-			}
-			if shown {
-				if err := click(ctx, d.what, d.sel); err != nil {
-					return err
-				}
 			}
 		}
 		ready, err := present(ctx, xpJoin)
@@ -237,7 +237,7 @@ func (s *Session) pressJoin(ctx context.Context) error {
 
 	s.log.Warn("join button ignored a JavaScript click; trying the Enter key")
 	kc, cancel := context.WithTimeout(ctx, clickTimeout)
-	err = chromedp.Do(kc, chromedp.Focus(xpJoin), chromedp.KeyEvent(kb.Enter))
+	err = chromedp.Do(kc, chromedp.Focus(chromedp.JSPath(elementJS(xpJoin))), chromedp.KeyEvent(kb.Enter))
 	cancel()
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -561,32 +561,69 @@ func match(text string, texts []string) (string, bool) {
 	return "", false
 }
 
-// waitVisible waits up to clickTimeout for sel to be visible; the error names
-// the control so that a Meet layout change can be diagnosed.
-func waitVisible(ctx context.Context, what, sel string) error {
+// notFoundError reports a control that did not become visible within
+// clickTimeout; naming it is what makes a Meet layout change diagnosable.
+type notFoundError struct{ what, sel string }
+
+func (e *notFoundError) Error() string {
+	return fmt.Sprintf("meet: %s not found (looked for %s)", e.what, e.sel)
+}
+
+// visibleAction and clickAction query the first element sel matches. An XPath
+// goes through document.evaluate rather than DOM.performSearch, which returns
+// every match and would make the visibility wait cover all of them.
+func visibleAction(sel string) chromedp.Action[chromedp.Void] {
+	if isXPath(sel) {
+		return chromedp.WaitVisible(chromedp.JSPath(elementJS(sel)))
+	}
+	return chromedp.WaitVisible(chromedp.CSS(sel))
+}
+
+func clickAction(sel string) chromedp.Action[chromedp.Void] {
+	if isXPath(sel) {
+		return chromedp.Click(chromedp.JSPath(elementJS(sel)))
+	}
+	return chromedp.Click(chromedp.CSS(sel))
+}
+
+// bounded runs the actions under clickTimeout, turning that timeout (but not
+// the end of ctx) into a notFoundError for the control.
+func bounded(ctx context.Context, what, sel string, actions ...chromedp.Action[chromedp.Void]) error {
 	wc, cancel := context.WithTimeout(ctx, clickTimeout)
 	defer cancel()
-	var err error
-	if isXPath(sel) {
-		err = chromedp.Do(wc, chromedp.WaitVisible(sel))
-	} else {
-		err = chromedp.Do(wc, chromedp.WaitVisible(chromedp.CSS(sel)))
-	}
+	err := chromedp.Do(wc, actions...)
 	if err != nil && ctx.Err() == nil && wc.Err() != nil {
-		return fmt.Errorf("meet: %s not found (looked for %s)", what, sel)
+		return &notFoundError{what, sel}
 	}
 	return err
 }
 
-// click waits for sel to be visible and clicks it with a CDP mouse click.
+// waitVisible waits up to clickTimeout for sel to be visible.
+func waitVisible(ctx context.Context, what, sel string) error {
+	return bounded(ctx, what, sel, visibleAction(sel))
+}
+
+// click waits for sel to be visible and clicks it with a CDP mouse click, all
+// within clickTimeout, so an element that vanishes between the two steps
+// cannot stall the caller.
 func click(ctx context.Context, what, sel string) error {
-	if err := waitVisible(ctx, what, sel); err != nil {
+	return bounded(ctx, what, sel, visibleAction(sel), clickAction(sel))
+}
+
+// clickIfPresent clicks an optional control that is on the page now. If it
+// does not become clickable in time, Join can still go on, so that is logged
+// rather than returned.
+func (s *Session) clickIfPresent(ctx context.Context, what, sel string) error {
+	shown, err := present(ctx, sel)
+	if err != nil || !shown {
 		return err
 	}
-	if isXPath(sel) {
-		return chromedp.Do(ctx, chromedp.Click(sel))
+	err = click(ctx, what, sel)
+	if nf := (*notFoundError)(nil); errors.As(err, &nf) {
+		s.log.Warn("optional control not clicked; carrying on", "control", what, "error", err)
+		return nil
 	}
-	return chromedp.Do(ctx, chromedp.Click(chromedp.CSS(sel)))
+	return err
 }
 
 // jsClick clicks sel with JavaScript's element.click(), which Meet honours on

@@ -56,9 +56,10 @@ func TestJoinSignedIn(t *testing.T) {
 	if err := s.Join(ctxT(t)); err != nil {
 		t.Fatal(err)
 	}
-	if !srv.Joined() || !srv.MicOff() || !srv.CameraOff() {
-		t.Fatalf("joined=%v mic off=%v camera off=%v", srv.Joined(), srv.MicOff(), srv.CameraOff())
-	}
+	// The fake page reports over an asynchronous fetch.
+	eventually(t, "joined with mic and camera off", func() bool {
+		return srv.Joined() && srv.MicOff() && srv.CameraOff()
+	})
 }
 
 func TestJoinSignedOut(t *testing.T) {
@@ -112,9 +113,10 @@ func TestSendChat(t *testing.T) {
 	if err := s.SendChat(ctxT(t), msg); err != nil {
 		t.Fatal(err)
 	}
-	if got := srv.Chat(); len(got) != 1 || got[0] != msg {
-		t.Fatalf("%q", got)
-	}
+	eventually(t, "the chat message", func() bool {
+		got := srv.Chat()
+		return len(got) == 1 && got[0] == msg
+	})
 }
 
 func TestParticipants(t *testing.T) {
