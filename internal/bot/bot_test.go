@@ -458,12 +458,14 @@ func TestSummariseFileRetryHintSurvivesAWriteFailure(t *testing.T) {
 func TestShellQuote(t *testing.T) {
 	for in, want := range map[string]string{
 		"/home/jane/notes/2026-10-30-abc-defg-hij": "/home/jane/notes/2026-10-30-abc-defg-hij",
-		"/tmp/a+b=c,d@e:f~g":                       "/tmp/a+b=c,d@e:f~g",
-		"/tmp/my notes":                            "'/tmp/my notes'",
-		"/tmp/Bob's":                               `'/tmp/Bob'\''s'`,
-		"/tmp/$HOME":                               "'/tmp/$HOME'",
-		"~jane/notes":                              "'~jane/notes'", // a leading ~ would be expanded
-		"":                                         "''",
+		"/tmp/a+b,d@e:f": "/tmp/a+b,d@e:f",
+		"a=~x":           "'a=~x'",   // bash expands ~ after =
+		"=notes":         "'=notes'", // zsh expands a leading =
+		"/tmp/my notes":  "'/tmp/my notes'",
+		"/tmp/Bob's":     `'/tmp/Bob'\''s'`,
+		"/tmp/$HOME":     "'/tmp/$HOME'",
+		"~jane/notes":    "'~jane/notes'", // a leading ~ would be expanded
+		"":               "''",
 	} {
 		if got := shellQuote(in); got != want {
 			t.Errorf("shellQuote(%q) = %s, want %s", in, got, want)

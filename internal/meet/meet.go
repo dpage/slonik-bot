@@ -151,8 +151,9 @@ func (s *Session) Join(ctx context.Context) error {
 	if err := s.prejoin(ctx); err != nil {
 		return err
 	}
-	// Chrome hands Meet the machine's real microphone and camera, so the bot
-	// does not go any further until it has seen both turned off.
+	// Chrome already refuses Meet the microphone and camera; seeing both
+	// turned off in Meet as well is a second check, so the bot never joins
+	// with either live if that refusal ever stops working.
 	if err := s.devicesOff(ctx); err != nil {
 		return err
 	}

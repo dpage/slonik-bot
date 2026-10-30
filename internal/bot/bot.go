@@ -390,14 +390,15 @@ func finish(ctx context.Context, dir, jsonl string, m transcript.Meeting, us []t
 // command can be pasted as is. Plain paths are left alone for readability; the
 // rest are single-quoted, which leaves nothing inside special except the
 // single quote itself, which is written by closing the quotes, adding an
-// escaped quote and reopening them. A leading ~ is quoted too, since the
-// shell would expand it.
+// escaped quote and reopening them. Any ~ or = is quoted too, since shells
+// expand ~ at the start of a word or after = in assignment-like words, and
+// zsh expands a leading = as a command path.
 func shellQuote(s string) string {
 	unsafe := func(c rune) bool {
-		safe := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("_./-~:+=,@", c)
+		safe := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("_./-:+,@", c)
 		return !safe
 	}
-	if s != "" && s[0] != '~' && !strings.ContainsFunc(s, unsafe) {
+	if s != "" && !strings.ContainsFunc(s, unsafe) {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
