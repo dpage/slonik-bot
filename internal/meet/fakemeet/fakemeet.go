@@ -32,6 +32,13 @@ type Scenario struct {
 	CaptionsMenu  bool   `json:"captionsMenu"`  // in call, "Captions and translation" replaces "Turn on captions"
 	PlainCaptions bool   `json:"plainCaptions"` // caption blocks carry no Meet class names
 	SelfName      string `json:"selfName"`      // the bot's own tile name; "" means "Slonik Bot (transcribing)"
+
+	// The microphone and camera buttons ignore this many clicks each before
+	// they respond, or every click when negative, standing for a Meet that
+	// does not act on the bot's click.
+	PrejoinClicksIgnored int  `json:"prejoinClicksIgnored"`
+	InCallClicksIgnored  int  `json:"inCallClicksIgnored"`
+	DevicesOnInCall      bool `json:"devicesOnInCall"` // the microphone and camera come back on once in the call
 }
 
 type queuedCommand struct {
@@ -47,6 +54,7 @@ type queuedCommand struct {
 type report struct {
 	Kind  string `json:"kind"`
 	Value string `json:"value"`
+	Seq   int    `json:"seq"` // the page's own order, since its fetches can arrive out of order
 }
 
 // Server is a running fake Meet page.
@@ -66,6 +74,8 @@ type Server struct {
 	joined     bool
 	micOff     bool
 	cameraOff  bool
+	micSeq     int // Seq of the report micOff came from
+	cameraSeq  int
 	captionsOn bool
 	language   string
 	chat       []string
@@ -169,10 +179,10 @@ func (s *Server) Kick() { s.push(queuedCommand{Op: "kick"}) }
 // Joined reports whether the bot entered the call.
 func (s *Server) Joined() bool { return s.read(func() bool { return s.joined }) }
 
-// MicOff reports whether the bot turned its microphone off.
+// MicOff reports whether the microphone is off, as the page last said.
 func (s *Server) MicOff() bool { return s.read(func() bool { return s.micOff }) }
 
-// CameraOff reports whether the bot turned its camera off.
+// CameraOff reports whether the camera is off, as the page last said.
 func (s *Server) CameraOff() bool { return s.read(func() bool { return s.cameraOff }) }
 
 // CaptionsOn reports whether captions are currently switched on.
@@ -263,10 +273,14 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	switch rep.Kind {
 	case "joined":
 		s.joined = true
-	case "mic-off":
-		s.micOff = true
-	case "camera-off":
-		s.cameraOff = true
+	case "mic-off", "mic-on":
+		if rep.Seq > s.micSeq {
+			s.micOff, s.micSeq = rep.Kind == "mic-off", rep.Seq
+		}
+	case "camera-off", "camera-on":
+		if rep.Seq > s.cameraSeq {
+			s.cameraOff, s.cameraSeq = rep.Kind == "camera-off", rep.Seq
+		}
 	case "captions-on":
 		s.captionsOn = true
 	case "captions-off":

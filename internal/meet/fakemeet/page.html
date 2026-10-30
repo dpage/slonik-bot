@@ -33,8 +33,11 @@
     return e;
   }
 
+  // Reports go out as separate fetches, which can arrive out of order; the
+  // sequence number lets the server keep the latest state of a device.
+  var reportSeq = 0;
   function report(kind, value) {
-    var body = { kind: kind };
+    var body = { kind: kind, seq: ++reportSeq };
     if (value !== undefined) { body.value = value; }
     return fetch("/api/report", {
       method: "POST",
@@ -53,22 +56,36 @@
     show(d);
   }
 
+  // ---- devices ----
+  function deviceOn(kind) { return kind === "mic" ? micOn : camOn; }
+  function setDevice(kind, on) {
+    if (kind === "mic") { micOn = on; } else { camOn = on; }
+    report(kind === "mic" ? (on ? "mic-on" : "mic-off") : (on ? "camera-on" : "camera-off"));
+  }
+
+  // deviceButton toggles the microphone or camera. It ignores its first
+  // `ignored` clicks, or every click when `ignored` is negative, to stand for
+  // a Meet that does not respond to the bot's click.
+  function deviceButton(kind, ignored) {
+    var name = kind === "mic" ? "microphone" : "camera";
+    var b = el("div", { role: "button", tabindex: "0" }, name);
+    function render() { b.setAttribute("aria-label", (deviceOn(kind) ? "Turn off " : "Turn on ") + name); }
+    render();
+    b.addEventListener("click", function () {
+      if (ignored < 0) { return; }
+      if (ignored > 0) { ignored--; return; }
+      setDevice(kind, !deviceOn(kind));
+      render();
+    });
+    return b;
+  }
+
   // ---- pre-join ----
   function renderPrejoin() {
     state = "prejoin";
     var wrap = el("div");
-    var mic = el("div", { role: "button", "aria-label": "Turn off microphone", tabindex: "0" }, "Mic");
-    mic.addEventListener("click", function () {
-      if (micOn) { micOn = false; mic.setAttribute("aria-label", "Turn on microphone"); report("mic-off"); }
-      else { micOn = true; mic.setAttribute("aria-label", "Turn off microphone"); }
-    });
-    var cam = el("div", { role: "button", "aria-label": "Turn off camera", tabindex: "0" }, "Cam");
-    cam.addEventListener("click", function () {
-      if (camOn) { camOn = false; cam.setAttribute("aria-label", "Turn on camera"); report("camera-off"); }
-      else { camOn = true; cam.setAttribute("aria-label", "Turn off camera"); }
-    });
-    wrap.appendChild(mic);
-    wrap.appendChild(cam);
+    wrap.appendChild(deviceButton("mic", sc.prejoinClicksIgnored || 0));
+    wrap.appendChild(deviceButton("camera", sc.prejoinClicksIgnored || 0));
     var asks = sc.lobby || sc.signedOut;
     if (sc.signedOut) {
       wrap.appendChild(el("input", { type: "text", "aria-label": "Your name" }));
@@ -134,6 +151,10 @@
     } else {
       capBtn = el("button", { "aria-label": "Turn on captions" });
     }
+    if (sc.devicesOnInCall) { setDevice("mic", true); setDevice("camera", true); }
+    callEl.appendChild(deviceButton("mic", sc.inCallClicksIgnored || 0));
+    callEl.appendChild(deviceButton("camera", sc.inCallClicksIgnored || 0));
+
     capBtn.setAttribute("data-captions-control", "1");
     capBtn.addEventListener("click", function () { setCaptions(!captionsOn); });
     callEl.appendChild(capBtn);

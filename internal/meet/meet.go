@@ -47,6 +47,7 @@ var (
 	ErrNotSignedIn     = errors.New("meet: the browser profile is not signed in to Google")
 	ErrNotAdmitted     = errors.New("meet: not admitted to the meeting")
 	ErrMeetingNotFound = errors.New("meet: meeting not found; check the meeting code")
+	ErrDevicesOn       = errors.New("meet: could not confirm that the microphone and camera are off")
 )
 
 // Options configures a Session.
@@ -66,6 +67,8 @@ const (
 	navigateTimeout     = 60 * time.Second
 	chatSentTimeout     = 3 * time.Second
 	justLeaveTimeout    = 2 * time.Second
+	deviceOffTimeout    = 3 * time.Second  // for a microphone or camera to show it is off
+	leaveTimeout        = 10 * time.Second // leaving after the devices would not turn off
 )
 
 // Session drives one Meet call in the browser's tab.
@@ -131,6 +134,7 @@ func (s *Session) bind(ctx context.Context) (context.Context, context.CancelFunc
 // Join opens the meeting, gets past the pre-join screen and waits until the
 // bot is in the call.
 func (s *Session) Join(ctx context.Context) error {
+	parent := ctx
 	ctx, done := s.bind(ctx)
 	defer done()
 
@@ -147,17 +151,97 @@ func (s *Session) Join(ctx context.Context) error {
 	if err := s.prejoin(ctx); err != nil {
 		return err
 	}
-	// A "Turn off" label means the device is on.
-	if err := s.clickIfPresent(ctx, "microphone button", selMicOff); err != nil {
-		return err
-	}
-	if err := s.clickIfPresent(ctx, "camera button", selCameraOff); err != nil {
+	// Chrome hands Meet the machine's real microphone and camera, so the bot
+	// does not go any further until it has seen both turned off.
+	if err := s.devicesOff(ctx); err != nil {
 		return err
 	}
 	if err := s.pressJoin(ctx); err != nil {
 		return err
 	}
-	return s.awaitAdmission(ctx)
+	if err := s.awaitAdmission(ctx); err != nil {
+		return err
+	}
+	// Checked again in the call, since the devices could have come back on
+	// and the bot is now heard and seen by everyone.
+	if err := s.devicesOff(ctx); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		lctx, cancel := context.WithTimeout(context.WithoutCancel(parent), leaveTimeout)
+		defer cancel()
+		if lerr := s.Leave(lctx); lerr != nil {
+			return errors.Join(err, fmt.Errorf("meet: leaving the call after that failed too: %w", lerr))
+		}
+		return fmt.Errorf("%w; the bot left the call", err)
+	}
+	return nil
+}
+
+// device is a microphone or camera control whose label offers to turn the
+// device off, which means it is on.
+type device struct{ name, sel string }
+
+var devices = []device{{"microphone", selMicOff}, {"camera", selCameraOff}}
+
+// devicesOn returns the devices whose "Turn off" control is on the page.
+func devicesOn(ctx context.Context) ([]device, error) {
+	var on []device
+	for _, d := range devices {
+		there, err := present(ctx, d.sel)
+		if err != nil {
+			return nil, err
+		}
+		if there {
+			on = append(on, d)
+		}
+	}
+	return on, nil
+}
+
+// devicesOff clicks the "Turn off" control of each device that is on, and
+// once more for any that a click did not turn off, then returns ErrDevicesOn
+// naming the devices that are still on. It knows a device is on only by its
+// "Turn off" label being present, so a device whose control has gone, or been
+// relabelled, counts as off.
+func (s *Session) devicesOff(ctx context.Context) error {
+	for attempt := range 2 {
+		on, err := devicesOn(ctx)
+		if err != nil || len(on) == 0 {
+			return err
+		}
+		if attempt > 0 {
+			s.log.Warn("the microphone or camera did not turn off; clicking again", "devices", deviceNames(on))
+		}
+		for _, d := range on {
+			if err := s.clickIfPresent(ctx, d.name+" button", d.sel); err != nil {
+				return err
+			}
+		}
+		if _, err := waitFor(ctx, deviceOffTimeout, func() (bool, error) {
+			on, err := devicesOn(ctx)
+			return len(on) == 0, err
+		}); err != nil {
+			return err
+		}
+	}
+	on, err := devicesOn(ctx)
+	if err != nil || len(on) == 0 {
+		return err
+	}
+	sels := make([]string, len(on))
+	for i, d := range on {
+		sels[i] = d.sel
+	}
+	return fmt.Errorf("%w: the %s did not turn off (still found %s)", ErrDevicesOn, deviceNames(on), strings.Join(sels, ", "))
+}
+
+func deviceNames(ds []device) string {
+	names := make([]string, len(ds))
+	for i, d := range ds {
+		names[i] = d.name
+	}
+	return strings.Join(names, " and ")
 }
 
 // prejoin waits for the join button, failing early on the pages that mean it

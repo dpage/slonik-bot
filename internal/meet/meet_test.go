@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +61,49 @@ func TestJoinSignedIn(t *testing.T) {
 	eventually(t, "joined with mic and camera off", func() bool {
 		return srv.Joined() && srv.MicOff() && srv.CameraOff()
 	})
+}
+
+// A click Meet does not act on gets one more try.
+func TestJoinRetriesAnIgnoredDeviceClick(t *testing.T) {
+	s, srv := session(t, fakemeet.Scenario{PrejoinClicksIgnored: 1}, time.Minute)
+	if err := s.Join(ctxT(t)); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "joined with mic and camera off", func() bool {
+		return srv.Joined() && srv.MicOff() && srv.CameraOff()
+	})
+}
+
+// The bot must never go into a call with its microphone or camera on.
+func TestJoinRefusesWhenDevicesStayOn(t *testing.T) {
+	s, srv := session(t, fakemeet.Scenario{PrejoinClicksIgnored: -1}, time.Minute)
+	err := s.Join(ctxT(t))
+	if !errors.Is(err, ErrDevicesOn) || !strings.Contains(err.Error(), "microphone and camera") {
+		t.Fatalf("%v", err)
+	}
+	time.Sleep(500 * time.Millisecond) // the page reports asynchronously
+	if srv.Joined() {
+		t.Fatal("joined the call with the microphone and camera on")
+	}
+}
+
+func TestJoinTurnsDevicesOffInCall(t *testing.T) {
+	s, srv := session(t, fakemeet.Scenario{DevicesOnInCall: true}, time.Minute)
+	if err := s.Join(ctxT(t)); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "mic and camera off in the call", func() bool {
+		return srv.Joined() && srv.MicOff() && srv.CameraOff()
+	})
+}
+
+func TestJoinLeavesWhenDevicesStayOnInCall(t *testing.T) {
+	s, srv := session(t, fakemeet.Scenario{DevicesOnInCall: true, InCallClicksIgnored: -1}, time.Minute)
+	err := s.Join(ctxT(t))
+	if !errors.Is(err, ErrDevicesOn) || !strings.Contains(err.Error(), "microphone and camera") {
+		t.Fatalf("%v", err)
+	}
+	eventually(t, "left the call", srv.Left)
 }
 
 func TestJoinSignedOut(t *testing.T) {
