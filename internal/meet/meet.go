@@ -79,6 +79,7 @@ type Session struct {
 	admitTimeout time.Duration
 	log          *slog.Logger
 	feed         captionFeed // see captions.go
+	lastPeople   string      // last participant readings logged
 }
 
 // Dial checks the meeting code and prepares a session in b's tab. It does not
@@ -456,6 +457,10 @@ type people struct {
 	Menus       []string `json:"menus"`
 	AvatarCount *string  `json:"avatarCount"`
 	PeopleLabel *string  `json:"peopleLabel"`
+	// Tiles and Buttons are only logged, to show what Meet exposes when the
+	// selectors above stop matching.
+	Tiles   []string `json:"tiles"`
+	Buttons []string `json:"buttons"`
 }
 
 // Participants returns the names of the other people in the call, sorted.
@@ -471,11 +476,18 @@ func (s *Session) Participants(ctx context.Context) ([]string, error) {
 		menus: Array.from(document.querySelectorAll(%s), e => e.getAttribute('aria-label') || ''),
 		avatarCount: attr(%s, 'data-avatar-count'),
 		peopleLabel: attr(%s, 'aria-label'),
+		tiles: [...new Set(Array.from(document.querySelectorAll('[data-participant-id]'), e => e.getAttribute('data-participant-id')))],
+		buttons: Array.from(document.querySelectorAll('button[aria-label]'), e => e.getAttribute('aria-label')).filter(l => /people|everyone|participant|more options for/i.test(l)),
 	};
 })()`, jsString(selParticipantMenus), jsString(selAvatarCount), jsString(selPeopleButton))
 	p, err := chromedp.Run(ctx, chromedp.Evaluate[people](script))
 	if err != nil {
 		return nil, err
+	}
+	if raw := fmt.Sprintf("%q %q %q %q %q", p.Menus, deref(p.AvatarCount), deref(p.PeopleLabel), p.Tiles, p.Buttons); raw != s.lastPeople {
+		s.lastPeople = raw
+		s.log.Debug("participant readings changed", "menus", p.Menus, "avatar_count", deref(p.AvatarCount),
+			"people_label", deref(p.PeopleLabel), "tiles", p.Tiles, "buttons", p.Buttons)
 	}
 
 	var names []string
@@ -757,4 +769,12 @@ func sleep(ctx context.Context, d time.Duration) error {
 	case <-t.C:
 		return nil
 	}
+}
+
+// deref returns *p, or "<none>" when p is nil.
+func deref(p *string) string {
+	if p == nil {
+		return "<none>"
+	}
+	return *p
 }
