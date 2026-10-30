@@ -12,7 +12,7 @@ import (
 	"github.com/dpage/slonik-bot/internal/meet/fakemeet"
 )
 
-const botName = "Slonik Bot (transcribing)"
+const botName = "Slonik Bot (Meeting Transcriber)"
 
 func session(t *testing.T, sc fakemeet.Scenario, admit time.Duration) (*Session, *fakemeet.Server) {
 	t.Helper()

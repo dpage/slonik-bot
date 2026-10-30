@@ -36,7 +36,7 @@ func TestServesPageAndScenario(t *testing.T) {
 		t.Fatal(err)
 	}
 	res.Body.Close()
-	if !sc.Lobby || sc.SelfName != "Slonik Bot (transcribing)" {
+	if !sc.Lobby || sc.SelfName != "Slonik Bot (Meeting Transcriber)" {
 		t.Fatalf("%+v", sc)
 	}
 }

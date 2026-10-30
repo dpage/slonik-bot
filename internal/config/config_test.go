@@ -13,7 +13,7 @@ import (
 
 func TestDefaults(t *testing.T) {
 	c := Default()
-	if c.BotName != "Slonik Bot (transcribing)" || c.CaptionLanguage != "English" {
+	if c.BotName != "Slonik Bot (Meeting Transcriber)" || c.CaptionLanguage != "English" {
 		t.Fatalf("defaults: %+v", c)
 	}
 	if c.MaxDuration != 4*time.Hour || c.AloneTimeout != 60*time.Second {
@@ -41,7 +41,7 @@ func TestLoadOverridesAndExpandsHome(t *testing.T) {
 	if c.MaxDuration != 90*time.Minute || c.LLM.Provider != "openai" || c.LLM.ResolvedModel() != "llama3" {
 		t.Fatalf("%+v", c)
 	}
-	if c.BotName != "Slonik Bot (transcribing)" {
+	if c.BotName != "Slonik Bot (Meeting Transcriber)" {
 		t.Fatal("unset keys must keep their defaults")
 	}
 }

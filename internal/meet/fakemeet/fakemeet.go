@@ -19,7 +19,7 @@ import (
 //go:embed page.html
 var pageHTML []byte
 
-const defaultSelfName = "Slonik Bot (transcribing)"
+const defaultSelfName = "Slonik Bot (Meeting Transcriber)"
 
 // pollWait is how long /api/commands holds a request open when idle.
 const pollWait = time.Second
@@ -31,7 +31,7 @@ type Scenario struct {
 	Lobby         bool   `json:"lobby"`         // join button reads "Ask to join"; waits for Admit or Deny
 	CaptionsMenu  bool   `json:"captionsMenu"`  // in call, "Captions and translation" replaces "Turn on captions"
 	PlainCaptions bool   `json:"plainCaptions"` // caption blocks carry no Meet class names
-	SelfName      string `json:"selfName"`      // the bot's own tile name; "" means "Slonik Bot (transcribing)"
+	SelfName      string `json:"selfName"`      // the bot's own tile name; "" means "Slonik Bot (Meeting Transcriber)"
 
 	// The microphone and camera buttons ignore this many clicks each before
 	// they respond, or every click when negative, standing for a Meet that

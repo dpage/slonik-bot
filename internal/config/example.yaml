@@ -4,7 +4,7 @@
 
 # Must match the bot account's Google display name exactly: the bot finds its
 # own tile in the call by this name, and so decides when it is alone.
-bot_name: "Slonik Bot (transcribing)"
+bot_name: "Slonik Bot (Meeting Transcriber)"
 chat_notice: "Slonik Bot is transcribing this call. The summary, action items and transcript will be shared with participants."
 caption_language: "English"
 profile_dir: "~/.config/slonik-bot/chrome-profile"

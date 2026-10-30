@@ -77,7 +77,7 @@ func DefaultPath() string {
 // Default returns the configuration used for any key the file leaves out.
 func Default() Config {
 	return Config{
-		BotName:         "Slonik Bot (transcribing)",
+		BotName:         "Slonik Bot (Meeting Transcriber)",
 		ChatNotice:      "Slonik Bot is transcribing this call. The summary, action items and transcript will be shared with participants.",
 		CaptionLanguage: "English",
 		ProfileDir:      filepath.Join(configDir(), "chrome-profile"),
