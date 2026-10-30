@@ -221,6 +221,18 @@ func TestRunFailedJoinLeavesNoFolder(t *testing.T) {
 	}
 }
 
+// Ctrl-C in the lobby is reported as such, not as chromedp's "context canceled".
+func TestRunInterruptedBeforeJoining(t *testing.T) {
+	o := opts(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	call := &fakeCall{joinErr: context.Canceled}
+	_, err := Run(ctx, o, Deps{Dial: dial(call)})
+	if err == nil || err.Error() != "bot: interrupted before joining" {
+		t.Fatalf("%v", err)
+	}
+}
+
 func TestRunAlone(t *testing.T) {
 	o := opts(t)
 	o.Config.AloneTimeout = 50 * time.Millisecond

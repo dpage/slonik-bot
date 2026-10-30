@@ -144,15 +144,24 @@ func Run(ctx context.Context, o Options, d Deps) (Outcome, error) {
 		_ = os.Remove(dir)
 	}
 
+	// A Ctrl-C before the bot is in the call (often whilst it waits in the
+	// lobby) surfaces from chromedp as a bare "context canceled".
+	errInterrupted := errors.New("bot: interrupted before joining")
 	call, err := d.Dial(ctx)
 	if err != nil {
 		discard()
+		if ctx.Err() != nil {
+			return out, errInterrupted
+		}
 		return out, err
 	}
 	defer func() { _ = call.Close() }()
 	// Meet's errors already say what to do about them.
 	if err := call.Join(ctx); err != nil {
 		discard()
+		if ctx.Err() != nil {
+			return out, errInterrupted
+		}
 		return out, err
 	}
 	leave := func() {
