@@ -4,12 +4,15 @@ go 1.26
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.84.0
+	github.com/chromedp/cdproto v0.158.6
+	github.com/chromedp/chromedp v0.21.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260213210345-44df1a37e875 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
