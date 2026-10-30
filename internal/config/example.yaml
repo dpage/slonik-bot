@@ -17,5 +17,5 @@ llm:
   provider: anthropic      # anthropic | openai
   model: ""                # default per provider: claude-opus-5-5 for anthropic; required for openai
   base_url: ""             # openai only, e.g. http://localhost:11434/v1
-  api_key_env: ""          # default ANTHROPIC_API_KEY / OPENAI_API_KEY; the key is never stored in the file
+  api_key_env: ""          # default ANTHROPIC_API_KEY / OPENAI_API_KEY; if unset, the key is read from ~/.anthropic-api-key / ~/.openai-api-key; it is never stored in this file
   max_output_tokens: 16000

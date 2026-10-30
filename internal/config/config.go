@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -176,14 +178,66 @@ func (l LLM) KeyEnv() string {
 	return "ANTHROPIC_API_KEY"
 }
 
-// APIKey reads the key from the environment; it is never kept in the config
-// file. OpenAI-compatible local servers usually need no key, so an empty one
-// is allowed for that provider.
+// KeyFile is the file in the home directory that supplies the API key when the
+// environment variable is unset: ~/.openai-api-key for openai, otherwise
+// ~/.anthropic-api-key. It is empty if the home directory cannot be found.
+func (l LLM) KeyFile() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	if l.Provider == providerOpenAI {
+		return filepath.Join(home, ".openai-api-key")
+	}
+	return filepath.Join(home, ".anthropic-api-key")
+}
+
+// APIKey reads the key from the environment variable named by KeyEnv and, if
+// that is empty, from KeyFile; it is never kept in the config file. A missing
+// or blank key file means no key. OpenAI-compatible local servers usually need
+// no key, so an empty one is allowed for that provider. The key itself never
+// appears in an error or log message.
 func (l LLM) APIKey() (string, error) {
 	env := l.KeyEnv()
-	k := os.Getenv(env)
+	if k := os.Getenv(env); k != "" {
+		return k, nil
+	}
+	path := l.KeyFile()
+	k, err := readKeyFile(path)
+	if err != nil {
+		return "", err
+	}
 	if k == "" && l.Provider == providerAnthropic {
-		return "", fmt.Errorf("config: set %s to your Anthropic API key", env)
+		if path == "" {
+			return "", fmt.Errorf("config: set %s to your Anthropic API key", env)
+		}
+		return "", fmt.Errorf("config: set %s or put your Anthropic API key in %s", env, path)
 	}
 	return k, nil
+}
+
+// readKeyFile returns the trimmed contents of path, or "" if the path is empty
+// or the file does not exist. Errors name the path, never the contents.
+func readKeyFile(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("config: reading API key file %s: %w", path, err)
+	}
+	key := strings.TrimSpace(string(data))
+	if key == "" {
+		return "", nil
+	}
+	if runtime.GOOS != "windows" {
+		if st, err := os.Stat(path); err == nil && st.Mode().Perm()&0o077 != 0 {
+			slog.Warn("API key file is readable by other users; run chmod 600 on it",
+				"path", path, "fix", "chmod 600 "+path)
+		}
+	}
+	return key, nil
 }
