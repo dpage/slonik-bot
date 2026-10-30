@@ -3,6 +3,7 @@ package transcript
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -40,6 +41,14 @@ type Writer struct{ f *os.File }
 
 // Create opens path for appending, creating it if needed.
 func Create(path string) (*Writer, error) {
+	// Re-joining the same meeting reuses the file. If the last run died
+	// mid-write, drop the fragment, since appending after it would put two
+	// records on one line and make the file unreadable.
+	if b, err := os.ReadFile(path); err == nil && len(b) > 0 && b[len(b)-1] != '\n' {
+		if err := os.Truncate(path, int64(bytes.LastIndexByte(b, '\n')+1)); err != nil {
+			return nil, fmt.Errorf("transcript: %w", err)
+		}
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("transcript: %w", err)

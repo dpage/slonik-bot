@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -46,6 +47,8 @@ const (
 	providerAnthropic = "anthropic"
 	providerOpenAI    = "openai"
 )
+
+var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // homeDir returns the user's home directory, or "" if it cannot be found; the
 // defaults then become relative paths rather than a startup failure.
@@ -134,6 +137,10 @@ func (c Config) Validate() error {
 		}
 	default:
 		return fmt.Errorf("config: llm.provider %q is not one of anthropic, openai", c.LLM.Provider)
+	}
+	// A pasted key would otherwise be echoed back by APIKey's error message.
+	if !envName.MatchString(c.LLM.APIKeyEnv) && c.LLM.APIKeyEnv != "" {
+		return errors.New("config: llm.api_key_env must be the name of an environment variable, not the key itself")
 	}
 	if c.MaxDuration <= 0 {
 		return errors.New("config: max_duration must be positive")
