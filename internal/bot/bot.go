@@ -38,7 +38,7 @@ type Options struct {
 	Config    config.Config
 	Code      string
 	NoSummary bool
-	OutDir    string        // "" means output.Dir(Config.OutputDir, Code, start)
+	OutDir    string        // "" means a new folder from output.NewDir(Config.OutputDir, Code, start)
 	Poll      time.Duration // 0 means 2s
 	Idle      time.Duration // 0 means 4s
 	Logger    *slog.Logger  // nil means slog.Default()
@@ -100,8 +100,13 @@ func Run(ctx context.Context, o Options, d Deps) (Outcome, error) {
 
 	// The disk is checked before Chrome joins anything.
 	dir := o.OutDir
+	var err error
 	if dir == "" {
-		dir = output.Dir(cfg.OutputDir, o.Code, time.Now())
+		// A new folder for every session, so that re-joining a meeting after
+		// a crash or an early exit cannot replace the earlier notes.
+		if dir, err = output.NewDir(cfg.OutputDir, o.Code, time.Now()); err != nil {
+			return Outcome{Dir: dir}, fmt.Errorf("bot: %w", err)
+		}
 	}
 	out := Outcome{Dir: dir}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -124,14 +129,29 @@ func Run(ctx context.Context, o Options, d Deps) (Outcome, error) {
 		}
 	}
 	defer closeWriter()
+	// discard removes the folder of a session that never got into the call,
+	// so that the next attempt is not pushed on to a -2 name for nothing.
+	// os.Remove leaves a folder that has anything else in it.
+	discard := func() {
+		if o.OutDir != "" {
+			return
+		}
+		closeWriter()
+		if fi, err := os.Stat(jsonlPath); err == nil && fi.Size() == 0 {
+			_ = os.Remove(jsonlPath)
+		}
+		_ = os.Remove(dir)
+	}
 
 	call, err := d.Dial(ctx)
 	if err != nil {
+		discard()
 		return out, err
 	}
 	defer func() { _ = call.Close() }()
 	// Meet's errors already say what to do about them.
 	if err := call.Join(ctx); err != nil {
+		discard()
 		return out, err
 	}
 	leave := func() {

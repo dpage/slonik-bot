@@ -95,6 +95,25 @@ func TestEmptyListsAndDir(t *testing.T) {
 	}
 }
 
+// Joining the same meeting twice in a day must never overwrite the first
+// session's notes.
+func TestNewDirNeverReusesAFolder(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "notes")
+	want := []string{"2026-10-30-abc-defg-hij", "2026-10-30-abc-defg-hij-2", "2026-10-30-abc-defg-hij-3"}
+	for _, w := range want {
+		d, err := NewDir(base, "abc-defg-hij", t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d != filepath.Join(base, w) {
+			t.Fatalf("got %s, want %s", d, w)
+		}
+		if fi, err := os.Stat(d); err != nil || !fi.IsDir() || fi.Mode().Perm() != 0o700 {
+			t.Fatalf("%s: %v %v", d, fi, err)
+		}
+	}
+}
+
 func TestWriteFilesWithoutSummary(t *testing.T) {
 	m, us, _ := fixture()
 	dir := t.TempDir()

@@ -26,6 +26,7 @@ type fakeCall struct {
 	script       []captions.Event
 	endAfter     time.Duration // 0: never ends by itself
 	participants []string
+	joinErr      error
 	captionsErr  error
 	chatErr      error
 	statusErr    error // returned by every Status call
@@ -35,7 +36,7 @@ type fakeCall struct {
 	left, closed bool
 }
 
-func (f *fakeCall) Join(context.Context) error { f.start = time.Now(); return nil }
+func (f *fakeCall) Join(context.Context) error { f.start = time.Now(); return f.joinErr }
 func (f *fakeCall) StartCaptions(_ context.Context, lang string, ev chan<- captions.Event) error {
 	if f.captionsErr != nil {
 		return f.captionsErr
@@ -173,6 +174,47 @@ func (s *syncBuffer) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.b.String()
+}
+
+// A second session of the same meeting on the same day, after a crash or an
+// early exit, gets its own folder rather than replacing the first one's notes.
+func TestRunSecondSessionGetsItsOwnFolder(t *testing.T) {
+	o := opts(t)
+	o.OutDir = ""
+	o.NoSummary = true
+	o.Config.OutputDir = t.TempDir()
+	var dirs []string
+	for range 2 {
+		call := &fakeCall{script: script, endAfter: 100 * time.Millisecond, participants: []string{"Alice Example"}}
+		out, err := Run(context.Background(), o, Deps{Dial: dial(call)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		dirs = append(dirs, out.Dir)
+	}
+	if dirs[0] == dirs[1] || !strings.HasSuffix(dirs[1], "-abc-defg-hij-2") {
+		t.Fatalf("folders %q", dirs)
+	}
+	for _, d := range dirs {
+		if us, err := transcript.Read(filepath.Join(d, "transcript.jsonl")); err != nil || len(us) != 2 {
+			t.Fatalf("%s: %d utterances, %v", d, len(us), err)
+		}
+	}
+}
+
+// A session that never got into the call leaves no folder, so the next
+// attempt does not get a -2 name for nothing.
+func TestRunFailedJoinLeavesNoFolder(t *testing.T) {
+	o := opts(t)
+	o.OutDir = ""
+	o.Config.OutputDir = t.TempDir()
+	call := &fakeCall{joinErr: meet.ErrNotSignedIn}
+	if _, err := Run(context.Background(), o, Deps{Dial: dial(call)}); !errors.Is(err, meet.ErrNotSignedIn) {
+		t.Fatalf("%v", err)
+	}
+	if entries, _ := os.ReadDir(o.Config.OutputDir); len(entries) != 0 {
+		t.Fatalf("left %v behind", entries)
+	}
 }
 
 func TestRunAlone(t *testing.T) {

@@ -2,7 +2,9 @@
 package output
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +19,31 @@ const none = "_None recorded._"
 // Dir returns the directory that holds the notes for one meeting.
 func Dir(base, code string, started time.Time) string {
 	return filepath.Join(base, started.Local().Format("2006-01-02")+"-"+code)
+}
+
+// NewDir creates the directory for a new session of a meeting and returns
+// its path. If Dir's name is taken, by an earlier session of the same meeting
+// on the same day, it adds -2, -3 and so on, so that a session never writes
+// over another one's notes. os.Mkdir fails on a directory that exists, so two
+// bots starting together cannot both take the same name.
+func NewDir(base, code string, started time.Time) (string, error) {
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		return "", fmt.Errorf("creating %s: %w", base, err)
+	}
+	first := Dir(base, code, started)
+	for n := 1; ; n++ {
+		d := first
+		if n > 1 {
+			d = fmt.Sprintf("%s-%d", first, n)
+		}
+		err := os.Mkdir(d, 0o700)
+		if err == nil {
+			return d, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return "", fmt.Errorf("creating %s: %w", d, err)
+		}
+	}
 }
 
 // escape protects Markdown special characters in text that came from the

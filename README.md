@@ -123,6 +123,8 @@ Each meeting gets its own folder under `output_dir`, named by the date it starte
     summary.md         summary, decisions and action items
 ```
 
+If the bot joins the same meeting again on the same day, for example after a crash or after it left early, the new session gets a folder of its own (`2026-10-30-abc-defg-hij-2`, then `-3` and so on), so an earlier session's notes are never overwritten.
+
 `transcript.jsonl` and `meeting.json` are what `summarise` reads. The folders are mode 0700 and the files mode 0600.
 
 ## Docker
