@@ -299,17 +299,19 @@ func watch(ctx context.Context, call Call, cfg config.Config, started time.Time,
 			case err != nil:
 				log.Debug("reading the participants", "error", err)
 			default:
+				var named []string
+				for _, p := range people {
+					if p != "" {
+						named = append(named, p)
+						seen[p] = true
+					}
+				}
 				if !listed {
 					// The bot leaves its own tile out only when bot_name is
 					// the account's display name exactly; if it is not, the
 					// bot's own name shows up here and it is never alone.
-					log.Info("people in the call besides the bot", "names", people, "bot_name", cfg.BotName)
+					log.Info("people in the call besides the bot", "count", len(people), "named", named, "bot_name", cfg.BotName)
 					listed = true
-				}
-				for _, p := range people {
-					if p != "" {
-						seen[p] = true
-					}
 				}
 				// Empty strings are people Meet counts but does not name.
 				if len(people) == 0 {
