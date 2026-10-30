@@ -138,24 +138,20 @@ func mergeText(held, incoming string) string {
 		inNorm[i] = normalise(w)
 	}
 
-	// A match is either the full anchor, or a shorter overlap that runs to
-	// the end of held, which is where incoming continues from a tail of only
-	// a word or two. Preferring the longest overlap stops repeated phrases
-	// matching too early and cutting off speech.
-	anchor := min(3, len(inWords))
-	tail := min(2, len(inWords))
-	best, bestLen := -1, 0
-	for j := range heldNorm {
-		n := 0
-		for j+n < len(heldNorm) && n < len(inNorm) && heldNorm[j+n] == inNorm[n] {
-			n++
-		}
-		if (n >= anchor || (j+n == len(heldNorm) && n >= tail)) && n > bestLen {
-			best, bestLen = j, n
-		}
+	if j, ok := findOverlap(heldNorm, inNorm); ok {
+		return strings.Join(append(heldWords[:j:j], inWords...), " ")
 	}
-	if best >= 0 {
-		return strings.Join(append(heldWords[:best:best], inWords...), " ")
+
+	// Meet may have re-recognised the first words of incoming, which then
+	// no longer match what is held. Skip up to three of them and align on
+	// the rest; the skipped words are taken as revisions of the held words
+	// just before the match, so they replace those rather than being lost
+	// or duplicated. Three is the anchor length: a longer skip would leave
+	// too little to trust.
+	for k := 1; k <= 3 && k < len(inNorm); k++ {
+		if j, ok := findOverlap(heldNorm, inNorm[k:]); ok && j >= k {
+			return strings.Join(append(heldWords[:j-k:j-k], inWords...), " ")
+		}
 	}
 
 	// A short block that no longer matches was most likely re-recognised
@@ -165,4 +161,31 @@ func mergeText(held, incoming string) string {
 		return strings.Join(inWords, " ")
 	}
 	return strings.Join(append(heldWords, inWords...), " ")
+}
+
+// findOverlap looks for where in held the words of in begin. A match is
+// either the full anchor, or a shorter overlap that runs to the end of held,
+// which is where in continues from a tail of only a word or two. The longest
+// overlap wins, which stops repeated phrases matching too early and cutting
+// off speech. On equal length a clean continuation (one reaching the end of
+// held) beats one that diverges, since choosing the divergent one discards
+// the held words after it; remaining ties go to the earliest position.
+func findOverlap(held, in []string) (int, bool) {
+	anchor := min(3, len(in))
+	tail := min(2, len(in))
+	best, bestLen, bestClean := -1, 0, false
+	for j := range held {
+		n := 0
+		for j+n < len(held) && n < len(in) && held[j+n] == in[n] {
+			n++
+		}
+		clean := j+n == len(held)
+		if n < anchor && (!clean || n < tail) {
+			continue
+		}
+		if n > bestLen || (n == bestLen && clean && !bestClean) {
+			best, bestLen, bestClean = j, n, clean
+		}
+	}
+	return best, best >= 0
 }

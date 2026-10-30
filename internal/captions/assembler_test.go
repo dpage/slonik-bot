@@ -27,6 +27,9 @@ func TestMergeText(t *testing.T) {
 		{"tail-partial overlap", "alpha bravo charlie delta echo foxtrot golf hotel india juliet", "india juliet kilo", "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo"},
 		{"repetitive speech", "yes I agree yes I agree with Bob", "agree with Bob entirely", "yes I agree yes I agree with Bob entirely"},
 		{"longest overlap beats earliest", "I think so and I think so too", "I think so too, yes", "I think so and I think so too, yes"},
+		{"clean continuation beats diverging tie", "so I think that we should do it and I think that", "I think that is fine", "so I think that we should do it and I think that is fine"},
+		{"anchor retry, revised word", "one two three four five six seven eight nine ten", "one two tree four five six seven eight nine ten eleven", "one two tree four five six seven eight nine ten eleven"},
+		{"anchor retry, front trim with revised word", "alpha bravo charlie delta echo foxtrot golf hotel", "dalta echo foxtrot golf hotel india", "alpha bravo charlie dalta echo foxtrot golf hotel india"},
 		{"empty incoming keeps held", "Hello there", "  ", "Hello there"},
 	}
 	for _, c := range cases {
