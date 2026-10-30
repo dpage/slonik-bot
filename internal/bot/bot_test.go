@@ -1,9 +1,11 @@
 package bot
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -135,6 +137,42 @@ func TestRunSummaryFailureKeepsTranscript(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(o.OutDir, "transcript.md")); err != nil {
 		t.Fatal("transcript.md missing after a summary failure")
 	}
+}
+
+// The bot finds its own tile by bot_name, so the names it sees first are
+// logged: a bot_name that does not match shows up as the bot's own name.
+func TestRunLogsFirstParticipants(t *testing.T) {
+	o := opts(t)
+	o.NoSummary = true
+	var logs syncBuffer
+	o.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	call := &fakeCall{script: script, endAfter: 200 * time.Millisecond, participants: []string{"Alice Example", "Bob Example"}}
+	if _, err := Run(context.Background(), o, Deps{Dial: dial(call)}); err != nil {
+		t.Fatal(err)
+	}
+	got := logs.String()
+	if strings.Count(got, "level=INFO msg=\"people in the call") != 1 || !strings.Contains(got, "Alice Example") || !strings.Contains(got, "bot_name=") {
+		t.Fatalf("logs:\n%s", got)
+	}
+}
+
+// syncBuffer is a bytes.Buffer that the logger can write to whilst the test
+// reads it.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 func TestRunAlone(t *testing.T) {

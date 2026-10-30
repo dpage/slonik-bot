@@ -28,7 +28,7 @@ The API key is read from the environment variable named by `llm.api_key_env` (by
 
 Create a dedicated Workspace account for the bot rather than using a personal one.
 
-1. In the Workspace admin console, give the account a clear display name, such as 'Slonik Bot (transcribing)'. Meet shows the account's name when someone is signed in; `bot_name` is only used if Meet offers a name field.
+1. In the Workspace admin console, give the account a clear display name, such as 'Slonik Bot (transcribing)', and set `bot_name` in the configuration to exactly the same name. The bot finds its own tile in the call by that name, and uses it to tell when everyone else has left; if the two differ, the bot counts itself as another person, never notices it is alone (so it stays until `max_duration`), and lists itself as a participant. When the bot joins, it logs the names of the people it can see; if its own name is among them, `bot_name` does not match.
 2. Make sure the account can join your meetings without knocking, which means it is in the same organisation as the meeting or has been invited. If it is left in the lobby, the bot waits five minutes and then gives up.
 3. Run `slonik-bot login` once (see below) to sign the account in.
 
@@ -92,9 +92,8 @@ This re-runs the summary for a saved `transcript.jsonl`, for example after chang
 Save this as `~/.config/slonik-bot/config.yaml`, or under `$XDG_CONFIG_HOME/slonik-bot/`. Every key is optional; the values shown are the defaults.
 
 ```yaml
-# Display name hint. The account's name is what Meet shows when signed in, and
-# that is set in the Workspace admin console; this is used only when Meet
-# offers a name field.
+# Must match the bot account's Google display name exactly: the bot finds its
+# own tile in the call by this name, and so decides when it is alone.
 bot_name: "Slonik Bot (transcribing)"
 chat_notice: "Slonik Bot is transcribing this call. The summary, action items and transcript will be shared with participants."
 caption_language: "English"

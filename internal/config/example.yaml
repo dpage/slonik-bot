@@ -2,9 +2,8 @@
 # defaults. Save as ~/.config/slonik-bot/config.yaml (or under
 # $XDG_CONFIG_HOME/slonik-bot/).
 
-# Display name hint. The account's name is what Meet shows when signed in, and
-# that is set in the Workspace admin console; this is used only when Meet
-# offers a name field.
+# Must match the bot account's Google display name exactly: the bot finds its
+# own tile in the call by this name, and so decides when it is alone.
 bot_name: "Slonik Bot (transcribing)"
 chat_notice: "Slonik Bot is transcribing this call. The summary, action items and transcript will be shared with participants."
 caption_language: "English"

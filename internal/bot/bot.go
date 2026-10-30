@@ -225,6 +225,7 @@ func watch(ctx context.Context, call Call, cfg config.Config, started time.Time,
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 	var aloneSince time.Time
+	listed := false // whether the first list of participants has been logged
 	for {
 		select {
 		case <-ctx.Done():
@@ -268,6 +269,13 @@ func watch(ctx context.Context, call Call, cfg config.Config, started time.Time,
 			case err != nil:
 				log.Debug("reading the participants", "error", err)
 			default:
+				if !listed {
+					// The bot leaves its own tile out only when bot_name is
+					// the account's display name exactly; if it is not, the
+					// bot's own name shows up here and it is never alone.
+					log.Info("people in the call besides the bot", "names", people, "bot_name", cfg.BotName)
+					listed = true
+				}
 				for _, p := range people {
 					if p != "" {
 						seen[p] = true
