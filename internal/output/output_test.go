@@ -83,6 +83,23 @@ func TestRenderEscapesNames(t *testing.T) {
 	}
 }
 
+// Caption text is whatever people said, so it must not turn into Markdown
+// formatting, links or HTML when transcript.md is rendered.
+func TestRenderTranscriptEscapesText(t *testing.T) {
+	m, us, _ := fixture()
+	us = us[:1]
+	us[0].Text = "Use *all* the `psql` _flags_, see [docs](http://example.org) <b>now</b> \\o/\nand # more"
+	got := RenderTranscript(m, us, nil)
+	want := "Use \\*all\\* the \\`psql\\` \\_flags\\_, see \\[docs\\](http://example.org) \\<b\\>now\\</b\\> \\\\o/ and # more"
+	if !strings.Contains(got, want) {
+		t.Fatalf("want %s in:\n%s", want, got)
+	}
+	us[0].Text = "# not a heading"
+	if got := RenderTranscript(m, us, nil); !strings.Contains(got, `\# not a heading`) {
+		t.Fatalf("leading # not escaped:\n%s", got)
+	}
+}
+
 func TestEmptyListsAndDir(t *testing.T) {
 	m, _, r := fixture()
 	r.Decisions, r.ActionItems = nil, nil
