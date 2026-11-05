@@ -55,11 +55,15 @@ func (a *Assembler) Observe(ev Event, now time.Time) {
 	}
 	if !ok {
 		// Meet starts a fresh block when someone resumes after another
-		// speaker, so an older open block of theirs is finished.
+		// speaker, or splits a long one, so an older block of theirs is
+		// emitted now. It stays open, as Meet goes on revising it whilst it
+		// is on screen; forgetting it would make the next revision look like
+		// a new block and emit it all again.
 		if ev.Speaker != "" {
 			for _, id := range a.ids() {
-				if a.blocks[id].speaker == ev.Speaker {
-					a.finalise(id)
+				if old := a.blocks[id]; old.speaker == ev.Speaker && !old.quiet {
+					a.send(old)
+					old.quiet = true
 				}
 			}
 		}
@@ -175,6 +179,15 @@ func mergeText(held, incoming string) string {
 		}
 	}
 
+	// Meet may also re-recognise more of a block than its first few words.
+	// If incoming carries the last words held, unchanged, then everything
+	// held after them is in incoming too, so incoming replaces held from
+	// where it appears to begin.
+	if j, k, ok := findTail(heldNorm, inNorm); ok {
+		start := max(nearest(heldNorm, inNorm[0], j-k, j), 0)
+		return strings.Join(append(heldWords[:start:start], inWords...), " ")
+	}
+
 	// A short block that no longer matches was most likely re-recognised
 	// from its first word; for a long one, a duplicated phrase is better
 	// than lost speech.
@@ -211,4 +224,34 @@ func findOverlap(held, in []string, minJ int, strict bool) (int, bool) {
 		}
 	}
 	return best, best >= 0
+}
+
+// findTail looks for the longest run of held's last words, at least three,
+// in in after its first word. It returns where the run starts in held (j)
+// and in in (k).
+func findTail(held, in []string) (j, k int, ok bool) {
+	for m := min(len(held), len(in)-1); m >= 3; m-- {
+		tail := held[len(held)-m:]
+		for k := 1; k+m <= len(in); k++ {
+			if slices.Equal(in[k:k+m], tail) {
+				return len(held) - m, k, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+// nearest returns the position of word in held closest to pos, at most three
+// away and no later than limit, or pos if there is none. A revision can change
+// the number of words before the anchor, so the incoming text's first word is
+// a better guide to where it begins than counting back from the anchor.
+func nearest(held []string, word string, pos, limit int) int {
+	for d := 0; d <= 3; d++ {
+		for _, i := range []int{pos - d, pos + d} {
+			if i >= 0 && i <= limit && i < len(held) && held[i] == word {
+				return i
+			}
+		}
+	}
+	return pos
 }

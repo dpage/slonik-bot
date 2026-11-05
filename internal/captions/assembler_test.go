@@ -32,6 +32,8 @@ func TestMergeText(t *testing.T) {
 		{"anchor retry, front trim with revised word", "alpha bravo charlie delta echo foxtrot golf hotel", "dalta echo foxtrot golf hotel india", "alpha bravo charlie dalta echo foxtrot golf hotel india"},
 		{"retry needs a full anchor", "w0 w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 the w16 w17 w18 w19", "x y z the", "w0 w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 the w16 w17 w18 w19 x y z the"},
 		{"empty incoming keeps held", "Hello there", "  ", "Hello there"},
+		{"whole block revised", "Right. The plan is to ship that release on Friday morning.", "Right. The plan's we ship the release on Friday morning.", "Right. The plan's we ship the release on Friday morning."},
+		{"word added at the front", "that is fine by me and by everyone else here", "Yes, that is fine by me and by everyone else here today", "Yes, that is fine by me and by everyone else here today"},
 	}
 	for _, c := range cases {
 		if got := mergeText(c.held, c.in); got != c.want {
@@ -99,6 +101,27 @@ func TestAssemblerSameSpeakerNewBlock(t *testing.T) {
 	a.Flush(at(3))
 	if len(s.got) != 3 || s.got[1].Speaker != "Alice Example" || s.got[2].Text != "Second thought." {
 		t.Fatalf("%+v", s.got)
+	}
+}
+
+// Meet splits a long stretch of speech into two blocks and goes on revising
+// the first whilst the second grows; the revisions must not emit the first
+// block again.
+func TestAssemblerRevisedAfterSplit(t *testing.T) {
+	var s sink
+	a := NewAssembler(30*time.Second, s.emit)
+	a.Observe(Event{Block: 1, Speaker: "Bob Example", Text: "So apparently the build is"}, at(0))
+	a.Observe(Event{Block: 2, Speaker: "Bob Example", Text: "broken again"}, at(1))
+	a.Observe(Event{Block: 1, Speaker: "Bob Example", Text: "So, apparently, the build is"}, at(1.5))
+	a.Observe(Event{Block: 2, Speaker: "Bob Example", Text: "broken again today."}, at(2))
+	a.Observe(Event{Block: 1, Speaker: "Bob Example", Text: "So apparently the build is"}, at(2.5))
+	a.Flush(at(3))
+	var got []string
+	for _, u := range s.got {
+		got = append(got, u.Text)
+	}
+	if len(got) != 2 || got[0] != "So apparently the build is" || got[1] != "broken again today." {
+		t.Fatalf("%q", got)
 	}
 }
 
