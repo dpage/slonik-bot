@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dpage/slonik-bot/internal/config"
@@ -41,6 +42,11 @@ type Options struct {
 type Server struct {
 	opts Options
 	log  *slog.Logger
+
+	mu  sync.Mutex
+	cur *session // the one open session, or nil
+
+	finishing sync.WaitGroup // notes being written
 }
 
 // New returns a Server with the Options defaults filled in.
@@ -69,15 +75,14 @@ func New(o Options) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/hello", s.hello)
-	// Placeholder until sessions arrive.
-	mux.HandleFunc("POST /v1/sessions", func(w http.ResponseWriter, r *http.Request) {
-		writeError(w, http.StatusNotImplemented, "not implemented")
-	})
+	mux.HandleFunc("POST /v1/sessions", s.createSession)
+	mux.HandleFunc("POST /v1/sessions/{id}/events", s.postEvents)
+	mux.HandleFunc("POST /v1/sessions/{id}/stop", s.stopSession)
 	return s.secure(mux)
 }
 
-// secure applies, in order: the Host check, the CORS preflight, the Origin
-// check, the bearer token and the body cap.
+// secure applies, in order: the Host check, the Origin check (which also sets
+// the CORS headers), the CORS preflight, the bearer token and the body cap.
 func (s *Server) secure(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A DNS-rebinding page reaches us under its own hostname.

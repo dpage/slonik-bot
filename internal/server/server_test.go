@@ -125,6 +125,21 @@ func TestBodyCapped(t *testing.T) {
 	}
 }
 
+func TestBodyOfUnknownLengthCapped(t *testing.T) {
+	s := newTestServer()
+	// Valid JSON so far, so the decoder keeps reading until the cap stops it.
+	big := `{"code":"` + strings.Repeat("x", 2<<20) + `"}`
+	req := httptest.NewRequest("POST", "/v1/sessions", strings.NewReader(big))
+	req.Host = "127.0.0.1:7381"
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.ContentLength = -1
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("got %d, want 413", rec.Code)
+	}
+}
+
 func TestUnknownPath(t *testing.T) {
 	s := newTestServer()
 	if rec := do(s, "GET", "/v1/nothing", "127.0.0.1:7381", testToken, "", nil); rec.Code != 404 {
