@@ -34,9 +34,9 @@ type Recording struct {
 	stopped                 bool
 }
 
-// Start creates dir if needed, opens dir/transcript.jsonl and writes
-// dir/meeting.json straight away, so that a crash mid-meeting still leaves
-// enough for summarise. A nil log means slog.Default().
+// Start creates dir if needed and opens dir/transcript.jsonl. It leaves
+// dir/meeting.json alone until SetStarted, so that a bot whose join fails
+// does not replace an earlier run's. A nil log means slog.Default().
 func Start(dir, code string, started time.Time, idle time.Duration, log *slog.Logger) (*Recording, error) {
 	if log == nil {
 		log = slog.Default()
@@ -64,7 +64,6 @@ func Start(dir, code string, started time.Time, idle time.Duration, log *slog.Lo
 			r.log.Error("writing to the transcript", "path", r.jsonl, "error", err)
 		}
 	})
-	r.writeMeeting()
 	return r, nil
 }
 
@@ -84,8 +83,9 @@ func (r *Recording) closeWriter() {
 	}
 }
 
-// SetStarted changes the start time, for a caller that opens the recording
-// before the meeting itself begins (the bot checks the disk before it joins).
+// SetStarted sets the start time and writes meeting.json, so that a crash
+// mid-meeting still leaves enough for summarise. The bot calls it once it has
+// joined, having opened the recording first to check the disk.
 func (r *Recording) SetStarted(started time.Time) {
 	r.m.Started = started
 	r.writeMeeting()

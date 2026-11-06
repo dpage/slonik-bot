@@ -221,6 +221,27 @@ func TestRunFailedJoinLeavesNoFolder(t *testing.T) {
 	}
 }
 
+// With OutDir, a failed join leaves an earlier run's meeting.json as it was.
+func TestRunFailedJoinKeepsEarlierMeeting(t *testing.T) {
+	o := opts(t)
+	path := filepath.Join(o.OutDir, "meeting.json")
+	earlier := transcript.Meeting{Code: "abc-defg-hij", Started: time.Date(2026, 10, 30, 14, 0, 0, 0, time.UTC)}
+	if err := transcript.WriteMeeting(path, earlier); err != nil {
+		t.Fatal(err)
+	}
+	call := &fakeCall{joinErr: meet.ErrNotSignedIn}
+	if _, err := Run(context.Background(), o, Deps{Dial: dial(call)}); !errors.Is(err, meet.ErrNotSignedIn) {
+		t.Fatalf("%v", err)
+	}
+	m, err := transcript.ReadMeeting(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.Started.Equal(earlier.Started) {
+		t.Errorf("meeting.json started %v, want %v", m.Started, earlier.Started)
+	}
+}
+
 // Ctrl-C in the lobby is reported as such, not as chromedp's "context canceled".
 func TestRunInterruptedBeforeJoining(t *testing.T) {
 	o := opts(t)

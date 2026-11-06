@@ -192,6 +192,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "starting the recording", err)
 		return
 	}
+	rec.SetStarted(now)
 	s.cur = &session{id: id, tab: req.Tab, code: code, started: now, lastContact: now, rec: rec}
 	s.log.Info("recording a meeting", "code", code, "notes", dir)
 	writeJSON(w, http.StatusCreated, s.answer(s.cur))

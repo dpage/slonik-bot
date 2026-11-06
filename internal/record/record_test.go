@@ -20,9 +20,6 @@ func TestRecordingWritesAsItGoes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Discard()
-	if _, err := os.Stat(filepath.Join(dir, "meeting.json")); err != nil {
-		t.Fatalf("meeting.json should exist straight away: %v", err)
-	}
 	r.Observe(captions.Event{Block: 1, Speaker: "Alice Example", Text: "Hello there"}, t0.Add(time.Second))
 	r.Tick(t0.Add(10 * time.Second))
 	us, err := transcript.Read(r.JSONL())
@@ -34,6 +31,30 @@ func TestRecordingWritesAsItGoes(t *testing.T) {
 	}
 	if r.Utterances() != 1 || r.Dir() != dir {
 		t.Fatalf("Utterances=%d Dir=%s", r.Utterances(), r.Dir())
+	}
+}
+
+// Start leaves meeting.json alone, so that a bot whose join fails does not
+// replace an earlier run's; SetStarted writes it.
+func TestRecordingSetStartedWritesMeeting(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "meeting.json")
+	earlier := transcript.Meeting{Code: "abc-defg-hij", Started: t0.Add(-time.Hour)}
+	if err := transcript.WriteMeeting(path, earlier); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Start(dir, "abc-defg-hij", t0, 4*time.Second, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if m, err := transcript.ReadMeeting(path); err != nil || !m.Started.Equal(earlier.Started) {
+		t.Fatalf("after Start, meeting.json = %+v, %v; want it unchanged", m, err)
+	}
+	r.SetStarted(t0)
+	m, err := transcript.ReadMeeting(path)
+	if err != nil || m.Code != "abc-defg-hij" || !m.Started.Equal(t0) {
+		t.Fatalf("after SetStarted, meeting.json = %+v, %v", m, err)
 	}
 }
 

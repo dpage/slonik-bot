@@ -222,6 +222,10 @@ func TestSessionRecordsAndFinishes(t *testing.T) {
 	if c.ChatNotice != "Test notice" || c.Acked != 0 || c.ID == "" {
 		t.Fatalf("%+v", c)
 	}
+	// Written at once, so that a crash still leaves enough for summarise.
+	if m, err := transcript.ReadMeeting(filepath.Join(c.Dir, "meeting.json")); err != nil || m.Code != "abc-defg-hij" {
+		t.Fatalf("meeting.json after create: %+v, %v", m, err)
+	}
 	if acked := r.send(c.ID, ev(1, 1, "Hello"), ev(2, 1, "Hello everyone")); acked != 2 {
 		t.Fatalf("acked %d, want 2", acked)
 	}
