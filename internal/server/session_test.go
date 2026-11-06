@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -30,6 +31,24 @@ type fakeLLM struct {
 func (l *fakeLLM) Complete(context.Context, string, string, map[string]any) (string, error) {
 	l.calls.Add(1)
 	return l.out, nil
+}
+
+// logBuffer collects log output from the handlers' goroutines.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *logBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *logBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // running is a Server serving on a real loopback listener.
@@ -324,6 +343,29 @@ func TestBadCode400(t *testing.T) {
 	}
 	if ents, _ := os.ReadDir(r.out); len(ents) != 0 {
 		t.Errorf("%d entries left in the output folder", len(ents))
+	}
+}
+
+// A chat notice the extension could not post is logged once per session,
+// however many POSTs carry it.
+func TestChatErrorLoggedOnce(t *testing.T) {
+	var logs logBuffer
+	r := start(t, func(o *Options) { o.Logger = slog.New(slog.NewTextHandler(&logs, nil)) })
+	c := r.create("1")
+	body := map[string]any{"events": []event{}, "chat_error": "The chat message was not sent"}
+	for range 2 {
+		if code := r.post("/v1/sessions/"+c.ID+"/events", body, nil); code != 200 {
+			t.Fatalf("events: got %d, want 200", code)
+		}
+	}
+	got := logs.String()
+	if n := strings.Count(got, "chat notice not posted"); n != 1 {
+		t.Fatalf("logged %d times, want once:\n%s", n, got)
+	}
+	for _, want := range []string{"level=WARN", "code=abc-defg-hij", `error="The chat message was not sent"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("log lacks %s:\n%s", want, got)
+		}
 	}
 }
 

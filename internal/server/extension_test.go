@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,15 +33,18 @@ type call struct {
 // the server's real answer, so that the events it carried are sent again.
 // window.__tooBig, if set, is given each batch of events and answers 413 for
 // it, without sending, when it returns true. window.__requests counts
-// requests and window.__created the sessions the server has created.
+// requests, window.__chatErrors those carrying a chat_error, and
+// window.__created the sessions the server has created.
 const shim = `(() => {
   const base = %s, token = %s;
   window.__fail = 0;
   window.__created = 0;
   window.__requests = 0;
+  window.__chatErrors = 0;
   window.__tooBig = null;
   const request = async (method, path, body) => {
     window.__requests++;
+    if (body && body.chat_error) window.__chatErrors++;
     if (window.__tooBig && path.endsWith('/events') && window.__tooBig(body.events)) {
       return { status: 413, body: { error: 'request body too large' } };
     }
@@ -76,8 +80,9 @@ const shim = `(() => {
 
 // joinCall starts the server, opens and joins the fake call, and loads the
 // extension's scripts into it. A zero heartbeat means one too long to happen
-// during a test, so that none can use up a window.__fail.
-func joinCall(t *testing.T, heartbeat time.Duration) *call {
+// during a test, so that none can use up a window.__fail. change, if given,
+// adjusts the server's Options after the defaults here.
+func joinCall(t *testing.T, heartbeat time.Duration, change ...func(*Options)) *call {
 	t.Helper()
 	path := browser.Find("")
 	if path == "" {
@@ -89,6 +94,9 @@ func joinCall(t *testing.T, heartbeat time.Duration) *call {
 		o.AllowOrigin = func(origin string) bool { return origin == m.URL }
 		o.Idle = 200 * time.Millisecond
 		o.Tick = 20 * time.Millisecond
+		for _, f := range change {
+			f(o)
+		}
 	})
 	b, err := browser.Launch(context.Background(), browser.Options{ProfileDir: t.TempDir(), ChromePath: path, Headless: true, FakeDevices: true})
 	if err != nil {
@@ -373,6 +381,35 @@ func TestTranscriberStopDuringStart(t *testing.T) {
 	if s := c.status(); s.Transcribing {
 		t.Errorf("still transcribing: %+v", s)
 	}
+}
+
+// A chat notice that could not be posted reaches the server's log, sent once
+// with the next POST rather than with every heartbeat.
+func TestTranscriberReportsChatError(t *testing.T) {
+	var logs logBuffer
+	c := joinCall(t, 100*time.Millisecond, func(o *Options) {
+		o.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	})
+	// The chat box never empties, so the notice is not sent.
+	c.eval(`document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'TEXTAREA') e.stopImmediatePropagation();
+}, true)`, nil)
+	var r startResult
+	c.eval(`window.__t.start()`, &r)
+	if !r.OK || r.ChatError == "" {
+		t.Fatalf("start: %+v", r)
+	}
+	until(t, "the log entry", func() bool { return strings.Contains(logs.String(), "chat notice not posted") })
+	time.Sleep(500 * time.Millisecond) // five heartbeats
+	var n int
+	c.eval(`window.__chatErrors`, &n)
+	if n != 1 {
+		t.Errorf("chat_error sent %d times, want once", n)
+	}
+	if s := c.status(); s.ChatError != r.ChatError {
+		t.Errorf("status chatError %q, want %q", s.ChatError, r.ChatError)
+	}
+	c.stop()
 }
 
 // A 413 halves the batch, and an event too big by itself is left out.

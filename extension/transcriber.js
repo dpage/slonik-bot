@@ -38,6 +38,7 @@ globalThis.SlonikTranscriber = (() => {
     let lastSeq = 0;
     let acked = 0;
     let chatError = '';
+    let chatErrorUnsent = false; // chatError is still to reach the server's log
     let lastError = '';
     let retryMs = retryBase;
     let flushTimer = null;
@@ -202,15 +203,18 @@ globalThis.SlonikTranscriber = (() => {
     // send makes one POST of the queue.
     const send = async () => {
       const batch = queue.slice(0, batchSize);
+      const body = { events: batch, participants: participants() };
+      if (chatErrorUnsent) body.chat_error = chatError;
       let res;
       try {
-        res = await deps.request('POST', `/v1/sessions/${session.id}/events`, { events: batch, participants: participants() });
+        res = await deps.request('POST', `/v1/sessions/${session.id}/events`, body);
       } catch (e) {
         failed(`Could not reach slonik-bot serve: ${e.message || e}`);
         return;
       }
       if (res.status === 200) {
         acked = res.body.acked;
+        if (body.chat_error) chatErrorUnsent = false;
         queue = queue.filter((ev) => ev.seq > acked);
         lastError = '';
         retryMs = retryBase;
@@ -262,8 +266,8 @@ globalThis.SlonikTranscriber = (() => {
       scheduleFlush(FLUSH_DELAY_MS);
     };
 
-    // endSession sends what is queued (one try), stops the session and puts
-    // the page back as it was.
+    // endSession sends what is queued and any unsent chat error (one try),
+    // stops the session and puts the page back as it was.
     const endSession = async () => {
       transcribing = false;
       clearTimeout(flushTimer);
@@ -271,7 +275,7 @@ globalThis.SlonikTranscriber = (() => {
       clearInterval(endWatch);
       flushTimer = heartbeat = endWatch = null;
       if (inFlight) await inFlight;
-      if (queue.length) await flush();
+      if (queue.length || chatErrorUnsent) await flush();
       let result = await stopSession();
       if (result.status === 404) {
         // The server restarted since the last POST that reached it.
@@ -287,6 +291,7 @@ globalThis.SlonikTranscriber = (() => {
       showCaptions();
       session = null;
       queue = [];
+      chatErrorUnsent = false;
       return result;
     };
 
@@ -327,6 +332,7 @@ globalThis.SlonikTranscriber = (() => {
       if (settings.hideCaptions) hideCaptions();
       transcribing = true;
       chatError = notice ? await postChat(notice) : '';
+      chatErrorUnsent = chatError !== '';
       if (stopRequested) return stopped();
       heartbeat = setInterval(flush, heartbeatMs);
       endWatch = setInterval(() => {

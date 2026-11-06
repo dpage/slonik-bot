@@ -37,7 +37,8 @@ type session struct {
 	id, tab, code string
 	started       time.Time
 	lastContact   time.Time
-	acked         int // the highest seq applied; every lower one has been too
+	acked         int  // the highest seq applied; every lower one has been too
+	chatLogged    bool // the extension's chat notice failure has been logged
 	rec           *record.Recording
 }
 
@@ -200,6 +201,7 @@ func (s *Server) postEvents(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Events       []eventIn `json:"events"`
 		Participants []string  `json:"participants"`
+		ChatError    string    `json:"chat_error"` // why the chat notice was not posted
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -214,6 +216,10 @@ func (s *Server) postEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	cur.lastContact = now
+	if req.ChatError != "" && !cur.chatLogged {
+		cur.chatLogged = true
+		s.log.Warn("chat notice not posted", "code", cur.code, "error", req.ChatError)
+	}
 	// Events resent after a lost answer are skipped; after a gap, the rest
 	// wait until the missing ones arrive.
 	slices.SortStableFunc(req.Events, func(a, b eventIn) int { return cmp.Compare(a.Seq, b.Seq) })
