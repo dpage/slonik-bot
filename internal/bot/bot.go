@@ -9,14 +9,13 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/dpage/slonik-bot/internal/captions"
 	"github.com/dpage/slonik-bot/internal/config"
 	"github.com/dpage/slonik-bot/internal/meet"
 	"github.com/dpage/slonik-bot/internal/output"
+	"github.com/dpage/slonik-bot/internal/record"
 	"github.com/dpage/slonik-bot/internal/summary"
 	"github.com/dpage/slonik-bot/internal/transcript"
 )
@@ -110,38 +109,19 @@ func Run(ctx context.Context, o Options, d Deps) (Outcome, error) {
 		}
 	}
 	out := Outcome{Dir: dir}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return out, fmt.Errorf("bot: creating %s: %w", dir, err)
-	}
-	jsonlPath := filepath.Join(dir, "transcript.jsonl")
-	meetingPath := filepath.Join(dir, "meeting.json")
-	w, err := transcript.Create(jsonlPath)
+	rec, err := record.Start(dir, o.Code, time.Now(), idle, log)
 	if err != nil {
 		return out, fmt.Errorf("bot: %w", err)
 	}
-	writerOpen := true
-	closeWriter := func() {
-		if !writerOpen {
-			return
-		}
-		writerOpen = false
-		if err := w.Close(); err != nil {
-			log.Error("closing the transcript", "path", jsonlPath, "error", err)
-		}
-	}
-	defer closeWriter()
+	defer rec.Close()
 	// discard removes the folder of a session that never got into the call,
 	// so that the next attempt is not pushed on to a -2 name for nothing.
-	// os.Remove leaves a folder that has anything else in it.
 	discard := func() {
 		if o.OutDir != "" {
+			rec.Close()
 			return
 		}
-		closeWriter()
-		if fi, err := os.Stat(jsonlPath); err == nil && fi.Size() == 0 {
-			_ = os.Remove(jsonlPath)
-		}
-		_ = os.Remove(dir)
+		rec.Discard()
 	}
 
 	// A Ctrl-C before the bot is in the call (often whilst it waits in the
@@ -174,11 +154,8 @@ func Run(ctx context.Context, o Options, d Deps) (Outcome, error) {
 
 	started := time.Now()
 	log.Info("joined the meeting", "code", o.Code, "notes", dir)
-	m := transcript.Meeting{Code: o.Code, Started: started}
 	// Written now so that a crash mid-meeting still leaves enough for summarise.
-	if err := transcript.WriteMeeting(meetingPath, m); err != nil {
-		log.Error("writing the meeting details", "path", meetingPath, "error", err)
-	}
+	rec.SetStarted(started)
 
 	events := make(chan captions.Event, eventBuffer)
 	if err := call.StartCaptions(ctx, cfg.CaptionLanguage, events); err != nil {
@@ -189,16 +166,7 @@ func Run(ctx context.Context, o Options, d Deps) (Outcome, error) {
 		log.Warn("could not post the notice in the chat; carrying on", "error", err)
 	}
 
-	var us []transcript.Utterance
-	asm := captions.NewAssembler(idle, func(u transcript.Utterance) {
-		us = append(us, u)
-		if err := w.Append(u); err != nil {
-			log.Error("writing to the transcript", "path", jsonlPath, "error", err)
-		}
-	})
-
-	seen := map[string]bool{}
-	reason := watch(ctx, call, cfg, started, poll, events, asm, seen, log)
+	reason := watch(ctx, call, cfg, started, poll, events, rec, log)
 	log.Info("stopped recording", "reason", reason)
 	out.Reason = reason
 
@@ -207,31 +175,17 @@ drain:
 	for {
 		select {
 		case ev := <-events:
-			asm.Observe(ev, time.Now())
+			rec.Observe(ev, time.Now())
 		default:
 			break drain
 		}
 	}
-	asm.Flush(time.Now())
-	closeWriter()
+	m, us := rec.Stop(time.Now())
 
 	switch reason {
 	case reasonEnded, reasonRemoved, reasonBrowserGone:
 	default:
 		leave()
-	}
-
-	m.Ended = time.Now()
-	for _, s := range transcript.Speakers(us) {
-		seen[s] = true
-	}
-	m.Participants = make([]string, 0, len(seen))
-	for name := range seen {
-		m.Participants = append(m.Participants, name)
-	}
-	slices.Sort(m.Participants)
-	if err := transcript.WriteMeeting(meetingPath, m); err != nil {
-		log.Error("writing the meeting details", "path", meetingPath, "error", err)
 	}
 
 	out.Utterances = len(us)
@@ -243,15 +197,15 @@ drain:
 		llm = d.LLM
 	}
 	// Ctrl-C ends the meeting, not the summary.
-	out.Summarised, err = finish(context.WithoutCancel(ctx), dir, jsonlPath, m, us, llm)
+	out.Summarised, err = record.Finish(context.WithoutCancel(ctx), dir, rec.JSONL(), m, us, llm)
 	return out, err
 }
 
 // watch feeds caption events to the assembler and polls the call until there
 // is a reason to stop, which it returns. It adds every named participant it
-// sees to seen.
+// sees to rec.
 func watch(ctx context.Context, call Call, cfg config.Config, started time.Time, poll time.Duration,
-	events <-chan captions.Event, asm *captions.Assembler, seen map[string]bool, log *slog.Logger) string {
+	events <-chan captions.Event, rec *record.Recording, log *slog.Logger) string {
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 	var aloneSince time.Time
@@ -261,9 +215,9 @@ func watch(ctx context.Context, call Call, cfg config.Config, started time.Time,
 		case <-ctx.Done():
 			return reasonInterrupted
 		case ev := <-events:
-			asm.Observe(ev, time.Now())
+			rec.Observe(ev, time.Now())
 		case now := <-ticker.C:
-			asm.Tick(now)
+			rec.Tick(now)
 
 			// Each poll is bounded, so that a page which has stopped
 			// answering cannot hold up the alone and max duration checks.
@@ -303,9 +257,9 @@ func watch(ctx context.Context, call Call, cfg config.Config, started time.Time,
 				for _, p := range people {
 					if p != "" {
 						named = append(named, p)
-						seen[p] = true
 					}
 				}
+				rec.AddParticipants(named...)
 				if !listed {
 					// The bot leaves its own tile out only when bot_name is
 					// the account's display name exactly; if it is not, the
@@ -352,63 +306,6 @@ func SummariseFile(ctx context.Context, jsonl, outDir string, llm summary.LLM) e
 	if outDir == "" {
 		outDir = filepath.Dir(jsonl)
 	}
-	_, err = finish(ctx, outDir, jsonl, m, us, llm)
+	_, err = record.Finish(ctx, outDir, jsonl, m, us, llm)
 	return err
-}
-
-// finish writes the notes, with a summary when llm is not nil. If the summary
-// fails the transcript is still written, and the error says how to retry.
-func finish(ctx context.Context, dir, jsonl string, m transcript.Meeting, us []transcript.Utterance, llm summary.LLM) (bool, error) {
-	// Written before the model is asked, because that can take minutes and
-	// the process can be killed meanwhile (a second Ctrl-C, or docker stop
-	// running out of time); the summary then rewrites it with corrections.
-	preErr := write(dir, m, us, nil)
-	if llm == nil {
-		return false, preErr
-	}
-	r, err := summary.Summarise(ctx, llm, m, us)
-	if err != nil {
-		retry := "slonik-bot summarise " + shellQuote(jsonl)
-		if filepath.Clean(dir) != filepath.Dir(jsonl) {
-			retry = "slonik-bot summarise --out " + shellQuote(dir) + " " + shellQuote(jsonl)
-		}
-		werr := preErr
-		if werr != nil {
-			werr = write(dir, m, us, nil) // once more, in case it was passing
-		}
-		if werr != nil {
-			// transcript.jsonl is still intact, so the retry is worth giving.
-			return false, errors.Join(werr, fmt.Errorf("bot: summary failed (%w); once the notes can be written, run: %s", err, retry))
-		}
-		return false, fmt.Errorf("bot: summary failed (%w); the transcript is saved, run: %s", err, retry)
-	}
-	if err := write(dir, m, us, r); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// shellQuote makes s one word for a POSIX shell, so that the printed retry
-// command can be pasted as is. Plain paths are left alone for readability; the
-// rest are single-quoted, which leaves nothing inside special except the
-// single quote itself, which is written by closing the quotes, adding an
-// escaped quote and reopening them. Any ~ or = is quoted too, since shells
-// expand ~ at the start of a word or after = in assignment-like words, and
-// zsh expands a leading = as a command path.
-func shellQuote(s string) string {
-	unsafe := func(c rune) bool {
-		safe := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("_./-:+,@", c)
-		return !safe
-	}
-	if s != "" && !strings.ContainsFunc(s, unsafe) {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-func write(dir string, m transcript.Meeting, us []transcript.Utterance, r *summary.Result) error {
-	if err := output.WriteFiles(dir, m, us, r); err != nil {
-		return fmt.Errorf("bot: writing the notes to %s: %w", dir, err)
-	}
-	return nil
 }
