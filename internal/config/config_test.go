@@ -274,6 +274,16 @@ func TestServeValidate(t *testing.T) {
 	if err := Default().Validate(); err != nil {
 		t.Fatalf("defaults: %v", err)
 	}
+
+	c := Default()
+	c.Serve.IdleTimeout = 29 * time.Second
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "at least 30s") {
+		t.Errorf("idle 29s: got %v, want an error naming the 30s minimum", err)
+	}
+	c.Serve.IdleTimeout = 30 * time.Second
+	if err := c.Validate(); err != nil {
+		t.Errorf("idle 30s: %v", err)
+	}
 }
 
 func TestServeTokenCreated(t *testing.T) {

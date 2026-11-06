@@ -154,7 +154,7 @@ llm:
 serve:                     # the local server behind `slonik-bot serve`, used by the Chrome extension
   port: 7381               # listens on 127.0.0.1 only
   token_file: "~/.config/slonik-bot/serve-token"  # generated on first `slonik-bot serve`; the token is never stored in this file
-  idle_timeout: 2m         # finish a meeting when no captions arrive for this long
+  idle_timeout: 2m         # finish a meeting when no captions arrive for this long; at least 30s
 ```
 
 ## Output

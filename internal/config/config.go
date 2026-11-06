@@ -173,8 +173,10 @@ func (c Config) Validate() error {
 	if c.Serve.Port < 1 || c.Serve.Port > 65535 {
 		return errors.New("config: serve.port must be between 1 and 65535")
 	}
-	if c.Serve.IdleTimeout <= 0 {
-		return errors.New("config: serve.idle_timeout must be positive")
+	// The extension sends a heartbeat every 15s, so anything shorter would end
+	// a quiet meeting that is still going.
+	if c.Serve.IdleTimeout < 30*time.Second {
+		return errors.New("config: serve.idle_timeout must be at least 30s, since the extension sends a heartbeat every 15s")
 	}
 	return nil
 }
