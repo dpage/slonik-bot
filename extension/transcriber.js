@@ -23,6 +23,13 @@ globalThis.SlonikTranscriber = (() => {
     }
   };
 
+  // codeOf returns the call's code from a Meet path, /abc-defg-hij or
+  // /meet/abc-defg-hij, or '' for any other page.
+  const codeOf = (path) => {
+    const m = /^\/(?:meet\/)?([a-z]{3}-[a-z]{4}-[a-z]{3})\/?$/.exec(path);
+    return m ? m[1] : '';
+  };
+
   const errorOf = (res) => (res.body && res.body.error) || `HTTP ${res.status}`;
 
   function create(deps) {
@@ -140,10 +147,13 @@ globalThis.SlonikTranscriber = (() => {
       return Array.from(names);
     };
 
-    // The whole page is read only once Meet's in-call controls (the captions
+    // Leaving the call for Meet's home page changes the address without
+    // loading a new page, so the extension is still running. Otherwise the
+    // whole page is read only once Meet's in-call controls (the captions
     // controls and Leave) have gone, as in meet.Status: during the call a
     // caption saying "you left the meeting" would otherwise end the recording.
     const callOver = () => {
+      if (codeOf(location.pathname) !== deps.code) return true;
       if (!document.body) return false;
       if ([sel.selCaptionsOn, sel.selCaptionsOff, sel.selCaptionsMenu, sel.selLeave].some((s) => document.querySelector(s))) return false;
       const text = document.body.innerText.replace(/\u2019/g, "'");
@@ -350,5 +360,5 @@ globalThis.SlonikTranscriber = (() => {
     return { start, stop, status, onCaption };
   }
 
-  return { create };
+  return { create, codeOf };
 })();

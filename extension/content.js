@@ -114,11 +114,7 @@
     watch = setInterval(follow, 1000);
   };
 
-  // The call's code, from /abc-defg-hij or /meet/abc-defg-hij; '' elsewhere.
-  const meetingCode = () => {
-    const m = /^\/(?:meet\/)?([a-z]{3}-[a-z]{4}-[a-z]{3})\/?$/.exec(location.pathname);
-    return m ? m[1] : '';
-  };
+  const meetingCode = () => SlonikTranscriber.codeOf(location.pathname);
 
   const start = async () => {
     if (current && (starting || current.status().transcribing)) return current.start();

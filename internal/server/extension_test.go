@@ -285,6 +285,21 @@ func TestTranscriberRecordsFakeMeet(t *testing.T) {
 	}
 }
 
+// Leaving for Meet's home page changes the address without a new page load,
+// and the recording ends with its notes written.
+func TestTranscriberStopsOnLeavingTheCallPage(t *testing.T) {
+	c := joinCall(t, 0)
+	r := c.start()
+	c.meet.Caption(1, "Alice Example", "Goodbye.")
+	c.sent(1)
+	c.eval(`history.pushState(null, '', '/')`, nil)
+	until(t, "the end of the recording", func() bool { return !c.status().Transcribing })
+	until(t, "transcript.md", func() bool {
+		_, err := os.Stat(filepath.Join(r.Dir, "transcript.md"))
+		return err == nil
+	})
+}
+
 func TestTranscriberSurvivesServerRestart(t *testing.T) {
 	c := joinCall(t, 0)
 	first := c.start().Dir
