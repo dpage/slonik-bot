@@ -166,7 +166,9 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	if cur := s.cur; cur != nil {
-		// The same tab again, after the extension's service worker restarted.
+		// The same tab starting again whilst its session is still open, for
+		// example after a page reload whose stop failed: the session lived in
+		// the page, and the service worker holds none.
 		if cur.tab == req.Tab && cur.code == code {
 			cur.lastContact = now
 			writeJSON(w, http.StatusOK, s.answer(cur))
