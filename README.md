@@ -124,7 +124,7 @@ Join the call in the usual way, click the extension's icon and choose Start tran
 
 If you close the tab or leave the page, the extension asks the server to stop the session. If it cannot, the server stops it by itself once no captions or heartbeats have arrived for `serve.idle_timeout`. Ctrl-C in the terminal running `serve` stops any open session and writes its notes before the server exits. A session that captured nothing leaves no folder.
 
-If `serve` restarts during a call, the extension notices that the session has gone and starts a new one, which gets a second folder (`2026-10-30-abc-defg-hij-2`) holding what was captured afterwards. The folder from before the restart has only what had been saved at that point and no summary, so run `slonik-bot summarise` on its `transcript.jsonl` if you want one.
+If `serve` restarts during a call, the extension notices that the session has gone and starts a new one, which gets a second folder (`2026-10-30-abc-defg-hij-2`) holding what was captured afterwards. If you stopped `serve` with Ctrl-C, the folder from before the restart has its notes and summary as usual; only if `serve` crashed or was killed does it have just what had been saved at that point and no summary, in which case run `slonik-bot summarise` on its `transcript.jsonl` if you want one.
 
 ### Limits of the extension route
 
