@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Slonik Bot",
+  "version": "0.1.0",
+  "description": "Records Google Meet captions into notes through slonik-bot serve, running on this computer.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Slonik Bot",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options.html",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["selectors.js", "transcriber.js", "content.js", "observer.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <title>Slonik Bot options</title>
+  <style>
+    body { font: 14px system-ui, sans-serif; max-width: 480px; margin: 24px; }
+    label { display: block; margin: 12px 0 4px; }
+    input[type="text"], input[type="password"] { width: 100%; padding: 6px; box-sizing: border-box; }
+    #result { margin-left: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Slonik Bot</h1>
+  <label for="serverURL">Server URL</label>
+  <input type="text" id="serverURL" placeholder="http://127.0.0.1:7381">
+  <label for="token">Token</label>
+  <input type="password" id="token" autocomplete="off">
+  <label for="displayName">Your display name</label>
+  <input type="text" id="displayName">
+  <label><input type="checkbox" id="hideCaptions"> Hide Meet's captions while transcribing</label>
+  <p><button id="test">Test connection</button><span id="result"></span></p>
+  <script src="options.js"></script>
+</body>
+</html>

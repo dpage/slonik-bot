@@ -347,7 +347,7 @@ globalThis.SlonikTranscriber = (() => {
       return starting;
     };
 
-    const status = () => ({ transcribing, queued: queue.length, acked, chatError, lastError });
+    const status = () => ({ transcribing, sessionId: session ? session.id : '', queued: queue.length, acked, chatError, lastError });
 
     return { start, stop, status, onCaption };
   }

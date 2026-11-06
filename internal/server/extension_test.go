@@ -402,3 +402,63 @@ func TestTranscriberSplitsOversizedBatches(t *testing.T) {
 		t.Errorf("the oversized caption was sent: %q", got)
 	}
 }
+
+// Every file the manifest names must exist, and it may reach loopback only.
+func TestManifestFilesExist(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "extension", "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Action struct {
+			DefaultPopup string            `json:"default_popup"`
+			DefaultIcon  map[string]string `json:"default_icon"`
+		} `json:"action"`
+		Background struct {
+			ServiceWorker string `json:"service_worker"`
+		} `json:"background"`
+		OptionsPage    string            `json:"options_page"`
+		Icons          map[string]string `json:"icons"`
+		HostPerms      []string          `json:"host_permissions"`
+		ContentScripts []struct {
+			JS []string `json:"js"`
+		} `json:"content_scripts"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	files := []string{m.Action.DefaultPopup, m.Background.ServiceWorker, m.OptionsPage}
+	for _, p := range m.Icons {
+		files = append(files, p)
+	}
+	for _, p := range m.Action.DefaultIcon {
+		files = append(files, p)
+	}
+	for _, cs := range m.ContentScripts {
+		files = append(files, cs.JS...)
+	}
+	for _, f := range files {
+		if f == "" {
+			t.Errorf("the manifest has an empty file reference")
+			continue
+		}
+		if _, err := os.Stat(filepath.Join("..", "..", "extension", f)); err != nil {
+			t.Errorf("the manifest names %s: %v", f, err)
+		}
+	}
+	if len(m.HostPerms) == 0 {
+		t.Error("no host_permissions")
+	}
+	for _, h := range m.HostPerms {
+		if !strings.HasPrefix(h, "http://127.0.0.1/") && !strings.HasPrefix(h, "http://localhost/") {
+			t.Errorf("host_permissions %q is not loopback", h)
+		}
+	}
+	if len(m.ContentScripts) == 0 {
+		t.Fatal("no content_scripts")
+	}
+	js := m.ContentScripts[0].JS
+	if len(js) == 0 || js[len(js)-1] != "observer.js" {
+		t.Errorf("content_scripts[0].js = %v, want observer.js last", js)
+	}
+}
