@@ -11,6 +11,6 @@ globalThis.SlonikSelectors = {
   selLeave: "button[aria-label=\"Leave call\"]",
   selParticipantMenus: "[aria-label^=\"More options for \"]",
   participantMenuPrefix: "More options for ",
-  textsEnded: ["The call ended because everyone left", "Your host ended the meeting for everyone", "You left the meeting"],
+  textsEnded: ["The call ended because everyone left", "Your host ended the meeting for everyone", "You left the meeting", "You've left the meeting"],
   textsRemoved: ["You've been removed from the meeting"],
 };

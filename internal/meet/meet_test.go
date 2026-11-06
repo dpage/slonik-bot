@@ -198,6 +198,17 @@ func TestStatusEnded(t *testing.T) {
 	eventually(t, "Ended", func() bool { st, _ := s.Status(ctx); return st == Ended })
 }
 
+// Meet now says "You've left the meeting", with a typographic apostrophe.
+func TestStatusLeft(t *testing.T) {
+	s, srv := joined(t, fakemeet.Scenario{})
+	ctx := ctxT(t)
+	if err := s.Leave(ctx); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "left", srv.Left)
+	eventually(t, "Ended", func() bool { st, _ := s.Status(ctx); return st == Ended })
+}
+
 func TestStatusRemoved(t *testing.T) {
 	s, srv := joined(t, fakemeet.Scenario{})
 	ctx := ctxT(t)

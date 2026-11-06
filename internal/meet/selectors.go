@@ -50,7 +50,7 @@ var (
 	textsWaiting  = []string{"Asking to be let in", "Waiting for the host to join", "You'll join the call when someone lets you in", "Please wait until a meeting host brings you into the call", "You're in the waiting room"}
 	textsDenied   = []string{"denied your request to join", "No one responded to your request to join the call"}
 	textsRemoved  = []string{"You've been removed from the meeting"}
-	textsEnded    = []string{"The call ended because everyone left", "Your host ended the meeting for everyone", "You left the meeting"}
+	textsEnded    = []string{"The call ended because everyone left", "Your host ended the meeting for everyone", "You left the meeting", "You've left the meeting"}
 	peopleLabel   = regexp.MustCompile(`^People - (\d+) joined$`)
 	selfNames     = []string{"You"} // plus Options.BotName
 )
