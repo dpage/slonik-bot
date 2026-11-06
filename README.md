@@ -93,6 +93,43 @@ slonik-bot summarise ~/slonik-bot-notes/2026-10-30-abc-defg-hij/transcript.jsonl
 
 This re-runs the summary for a saved `transcript.jsonl`, for example after changing the model or when the first attempt failed. If a summary fails at the end of a meeting, the bot prints the exact `summarise` command to run, so you can copy it. `summarise` accepts `--config`, `--llm-model`, `--llm-provider`, `--out` (default: the transcript's own directory) and `--verbose`.
 
+## Transcribing from your own Chrome tab
+
+`join` needs a separate Google account and a Chrome that the bot controls. If you would rather transcribe a call you are already in, from your own Chrome and your own account, use the extension in `extension/` together with `slonik-bot serve`. The extension reads the captions from your Meet tab and sends them to a small server on your machine, which writes the same notes as `join` and asks the same model for the summary. Nobody else sees a bot in the call, but the extension posts `chat_notice` to the meeting chat when you start, so participants still know; if it cannot post it, the popup tells you to do it yourself. The API key stays with `serve` and never reaches the browser.
+
+### Start the server
+
+```sh
+slonik-bot serve
+```
+
+The server listens on `127.0.0.1` only (port 7381 unless you set `serve.port`) and stops on Ctrl-C. The first time it runs it generates a token, saves it in `serve.token_file` (mode 0600) and prints it; after that it only says where the file is, so read the token from there. Every request from the extension must carry the token, and the server also refuses requests that come from anything other than the extension's own origin. `serve` accepts `--config`, `--llm-model`, `--llm-provider`, `--no-summary`, `--out` and `--verbose`, which mean the same as for `join`, and it checks the API key before it starts listening.
+
+### Load the extension
+
+1. Open `chrome://extensions` and turn on Developer mode.
+2. Choose Load unpacked and select the `extension/` folder of your checkout.
+3. Open the extension's options and fill in:
+   - Server URL: `http://127.0.0.1:7381` by default; change it only if you changed `serve.port`.
+   - Token: the token from `serve`, for example `<token from serve>`.
+   - Your display name: Meet labels your own captions 'You', so this is the name that goes in the transcript instead, for example `Alice Example`.
+   - Hide Meet's captions while transcribing: on by default. It makes Meet's caption area transparent, so you do not see the captions but the extension can still read them.
+4. Choose Test connection; it says 'Connected: slonik-bot' and the server version when the URL and token are right.
+
+The token is kept in the extension's local storage, not in any file in the repository.
+
+### Start and stop
+
+Join the call in the usual way, click the extension's icon and choose Start transcribing. It turns Meet's captions on if they are off, posts the chat notice and shows REC on the icon. The popup shows how many caption events are waiting to be sent. Choose Stop transcribing to end the session, and the server then writes `transcript.jsonl`, `transcript.md` and `summary.md` into a folder named as under Output. A call needs a code in its address, such as `meet.google.com/abc-defg-hij`; the button reads 'Open a Meet call' elsewhere. Only one meeting is recorded at a time: a second tab that tries to start gets an error from the server (HTTP 409).
+
+If you close the tab or leave the page, the extension asks the server to stop the session. If it cannot, the server stops it by itself once no captions or heartbeats have arrived for `serve.idle_timeout`. Ctrl-C in the terminal running `serve` stops any open session and writes its notes before the server exits. A session that captured nothing leaves no folder.
+
+If `serve` restarts during a call, the extension notices that the session has gone and starts a new one, which gets a second folder (`2026-10-30-abc-defg-hij-2`) holding what was captured afterwards. The folder from before the restart has only what had been saved at that point and no summary, so run `slonik-bot summarise` on its `transcript.jsonl` if you want one.
+
+### Limits of the extension route
+
+The 'You' label and the hiding of Meet's captions have not yet been checked in a real call, so treat both as untested. The other limits listed under 'What it does, and its limits' apply here too, in particular that Meet's page markup can change without notice.
+
 ## Configuration
 
 Save this as `~/.config/slonik-bot/config.yaml`, or under `$XDG_CONFIG_HOME/slonik-bot/`. Every key is optional; the values shown are the defaults.
@@ -114,6 +151,10 @@ llm:
   base_url: ""             # openai only, e.g. http://localhost:11434/v1
   api_key_env: ""          # default ANTHROPIC_API_KEY / OPENAI_API_KEY; if unset, the key is read from ~/.anthropic-api-key / ~/.openai-api-key; it is never stored in this file
   max_output_tokens: 16000
+serve:                     # the local server behind `slonik-bot serve`, used by the Chrome extension
+  port: 7381               # listens on 127.0.0.1 only
+  token_file: "~/.config/slonik-bot/serve-token"  # generated on first `slonik-bot serve`; the token is never stored in this file
+  idle_timeout: 2m         # finish a meeting when no captions arrive for this long
 ```
 
 ## Output
@@ -190,3 +231,7 @@ The sign-in is saved in the mounted `/config` directory (the profile defaults to
 - **Join request flagged as a risk.** Meet shows the host a warning, with Deny as the default, when the bot runs with `--headless`; headless Chrome names itself `HeadlessChrome` in its user agent. Run without `--headless`: a minimised window joins without the warning, and the Docker image's virtual display should too, though that is untested.
 - **Join button or chat ignored.** The bot clicks and types through scripted input, which Meet may treat as coming from a bot rather than a person. If the join button does not respond, the bot is refused, or the chat notice is not posted, that is the most likely cause. Run without `--headless` to watch what happens, and open an issue if it persists.
 - **No summary.** If the model call fails, the transcript is still saved; fix the key or model and run the `summarise` command the bot printed.
+
+## Development
+
+`make test` runs the tests and `make lint` runs `go vet`, a formatting check and golangci-lint. The extension's `observer.js` is a copy of `internal/captions/observer.js`, which the bot also uses; after editing the original, run `make extension` to copy it into `extension/`, and commit both.
