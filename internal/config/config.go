@@ -2,7 +2,9 @@
 package config
 
 import (
+	"crypto/rand"
 	_ "embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -32,6 +34,14 @@ type LLM struct {
 	MaxOutputTokens int    `yaml:"max_output_tokens"`
 }
 
+// Serve configures the local HTTP server that the Chrome extension posts
+// captions to.
+type Serve struct {
+	Port        int           `yaml:"port"`
+	TokenFile   string        `yaml:"token_file"`
+	IdleTimeout time.Duration `yaml:"idle_timeout"`
+}
+
 // Config is the whole configuration file.
 type Config struct {
 	BotName         string        `yaml:"bot_name"`
@@ -43,6 +53,7 @@ type Config struct {
 	MaxDuration     time.Duration `yaml:"max_duration"`
 	AloneTimeout    time.Duration `yaml:"alone_timeout"`
 	LLM             LLM           `yaml:"llm"`
+	Serve           Serve         `yaml:"serve"`
 }
 
 const (
@@ -88,6 +99,11 @@ func Default() Config {
 			Provider:        providerAnthropic,
 			MaxOutputTokens: 16000,
 		},
+		Serve: Serve{
+			Port:        7381,
+			TokenFile:   filepath.Join(configDir(), "serve-token"),
+			IdleTimeout: 2 * time.Minute,
+		},
 	}
 }
 
@@ -115,6 +131,7 @@ func Load(path string, explicit bool) (Config, error) {
 	c.ProfileDir = expandHome(c.ProfileDir)
 	c.OutputDir = expandHome(c.OutputDir)
 	c.ChromePath = expandHome(c.ChromePath)
+	c.Serve.TokenFile = expandHome(c.Serve.TokenFile)
 	return c, nil
 }
 
@@ -152,6 +169,12 @@ func (c Config) Validate() error {
 	}
 	if c.LLM.MaxOutputTokens <= 0 {
 		return errors.New("config: llm.max_output_tokens must be positive")
+	}
+	if c.Serve.Port < 1 || c.Serve.Port > 65535 {
+		return errors.New("config: serve.port must be between 1 and 65535")
+	}
+	if c.Serve.IdleTimeout <= 0 {
+		return errors.New("config: serve.idle_timeout must be positive")
 	}
 	return nil
 }
@@ -203,7 +226,7 @@ func (l LLM) APIKey() (string, error) {
 		return k, nil
 	}
 	path := l.KeyFile()
-	k, err := readKeyFile(path)
+	k, err := readKeyFile(path, "API key")
 	if err != nil {
 		return "", err
 	}
@@ -217,8 +240,9 @@ func (l LLM) APIKey() (string, error) {
 }
 
 // readKeyFile returns the trimmed contents of path, or "" if the path is empty
-// or the file does not exist. Errors name the path, never the contents.
-func readKeyFile(path string) (string, error) {
+// or the file does not exist. what names the secret ("API key", "token") in
+// messages. Errors name the path, never the contents.
+func readKeyFile(path, what string) (string, error) {
 	if path == "" {
 		return "", nil
 	}
@@ -227,7 +251,7 @@ func readKeyFile(path string) (string, error) {
 		return "", nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("config: reading API key file %s: %w", path, err)
+		return "", fmt.Errorf("config: reading %s file %s: %w", what, path, err)
 	}
 	key := strings.TrimSpace(string(data))
 	if key == "" {
@@ -235,9 +259,39 @@ func readKeyFile(path string) (string, error) {
 	}
 	if runtime.GOOS != "windows" {
 		if st, err := os.Stat(path); err == nil && st.Mode().Perm()&0o077 != 0 {
-			slog.Warn("API key file is readable by other users; run chmod 600 on it",
+			slog.Warn(what+" file is readable by other users; run chmod 600 on it",
 				"path", path, "fix", "chmod 600 "+path)
 		}
 	}
 	return key, nil
+}
+
+// Token returns the bearer token that the extension must send, read from
+// TokenFile. If the file is missing or blank, a new random token is written to
+// it (mode 0600, parent directory 0700) and created is true. Errors name the
+// path, never the token.
+func (s Serve) Token() (token string, created bool, err error) {
+	token, err = readKeyFile(s.TokenFile, "token")
+	if err != nil || token != "" {
+		return token, false, err
+	}
+	if s.TokenFile == "" {
+		return "", false, errors.New("config: serve.token_file is empty")
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", false, fmt.Errorf("config: generating token: %w", err)
+	}
+	token = hex.EncodeToString(b)
+	if err := os.MkdirAll(filepath.Dir(s.TokenFile), 0o700); err != nil {
+		return "", false, fmt.Errorf("config: creating directory for token file %s: %w", s.TokenFile, err)
+	}
+	if err := os.WriteFile(s.TokenFile, []byte(token+"\n"), 0o600); err != nil {
+		return "", false, fmt.Errorf("config: writing token file %s: %w", s.TokenFile, err)
+	}
+	// WriteFile leaves the mode of an existing (blank) file alone.
+	if err := os.Chmod(s.TokenFile, 0o600); err != nil {
+		return "", false, fmt.Errorf("config: securing token file %s: %w", s.TokenFile, err)
+	}
+	return token, true, nil
 }

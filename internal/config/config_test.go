@@ -227,3 +227,118 @@ func TestAPIKey(t *testing.T) {
 		t.Fatalf("openai with no key should be allowed: %q %v", k, err)
 	}
 }
+
+func TestExampleLoads(t *testing.T) {
+	home := fakeHome(t)
+	p := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(p, []byte(Example), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(p, true)
+	if err != nil {
+		t.Fatalf("example.yaml does not load: %v", err)
+	}
+	if c.Serve.Port != 7381 || c.Serve.IdleTimeout != 2*time.Minute {
+		t.Fatalf("serve from example: %+v", c.Serve)
+	}
+	if want := filepath.Join(home, ".config", "slonik-bot", "serve-token"); c.Serve.TokenFile != want {
+		t.Fatalf("token file %q, want %q", c.Serve.TokenFile, want)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServeDefaults(t *testing.T) {
+	s := Default().Serve
+	if s.Port != 7381 || s.IdleTimeout != 2*time.Minute {
+		t.Fatalf("serve defaults: %+v", s)
+	}
+	if !strings.HasSuffix(s.TokenFile, filepath.Join("slonik-bot", "serve-token")) {
+		t.Fatalf("token file %q", s.TokenFile)
+	}
+}
+
+func TestServeValidate(t *testing.T) {
+	for name, mutate := range map[string]func(*Config){
+		"port zero":    func(c *Config) { c.Serve.Port = 0 },
+		"port too big": func(c *Config) { c.Serve.Port = 70000 },
+		"idle zero":    func(c *Config) { c.Serve.IdleTimeout = 0 },
+	} {
+		c := Default()
+		mutate(&c)
+		if err := c.Validate(); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+	if err := Default().Validate(); err != nil {
+		t.Fatalf("defaults: %v", err)
+	}
+}
+
+func TestServeTokenCreated(t *testing.T) {
+	s := Serve{TokenFile: filepath.Join(t.TempDir(), "sub", "serve-token")}
+	tok, created, err := s.Token()
+	if err != nil || !created {
+		t.Fatalf("token: %q created=%v err=%v", tok, created, err)
+	}
+	if len(tok) != 64 || strings.Trim(tok, "0123456789abcdef") != "" {
+		t.Fatalf("token %q is not 64 hex characters", tok)
+	}
+	if runtime.GOOS != "windows" {
+		st, err := os.Stat(s.TokenFile)
+		if err != nil || st.Mode().Perm() != 0o600 {
+			t.Fatalf("file mode: %v %v", st, err)
+		}
+		dst, err := os.Stat(filepath.Dir(s.TokenFile))
+		if err != nil || dst.Mode().Perm() != 0o700 {
+			t.Fatalf("dir mode: %v %v", dst, err)
+		}
+	}
+	again, created, err := s.Token()
+	if err != nil || created || again != tok {
+		t.Fatalf("second call: %q created=%v err=%v", again, created, err)
+	}
+}
+
+func TestServeTokenBlankFileReplaced(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "serve-token")
+	if err := os.WriteFile(p, []byte(" \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tok, created, err := Serve{TokenFile: p}.Token()
+	if err != nil || !created || len(tok) != 64 {
+		t.Fatalf("token: %q created=%v err=%v", tok, created, err)
+	}
+}
+
+func TestServeTokenReused(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "serve-token")
+	if err := os.WriteFile(p, []byte("  tok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tok, created, err := Serve{TokenFile: p}.Token()
+	if err != nil || created || tok != "tok" {
+		t.Fatalf("token: %q created=%v err=%v", tok, created, err)
+	}
+}
+
+func TestServeTokenWarnsOnWideMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no Unix modes")
+	}
+	p := filepath.Join(t.TempDir(), "serve-token")
+	if err := os.WriteFile(p, []byte("tok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(p, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf := captureLog(t)
+	if _, _, err := (Serve{TokenFile: p}).Token(); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); !strings.Contains(out, "token file is readable") || strings.Contains(out, "API key") {
+		t.Fatalf("log: %s", out)
+	}
+}
