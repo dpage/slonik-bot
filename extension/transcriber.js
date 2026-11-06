@@ -44,6 +44,10 @@ globalThis.SlonikTranscriber = (() => {
     let heartbeat = null;
     let endWatch = null;
     let inFlight = null; // the POST of the queue under way, if any
+    let batchSize = MAX_BATCH; // halved after each 413, restored after a 200
+    let starting = null; // the start() under way, if any
+    let stopRequested = false; // stop() was called whilst start() was under way
+    let stopResult = null; // what that stop() returns
 
     // openSession creates the session, or rejoins this tab's open one.
     const openSession = async () => {
@@ -67,7 +71,7 @@ globalThis.SlonikTranscriber = (() => {
     const stopSession = async () => {
       try {
         const res = await deps.request('POST', `/v1/sessions/${session.id}/stop`, {});
-        if (res.status !== 200) return { error: errorOf(res) };
+        if (res.status !== 200) return { error: errorOf(res), status: res.status };
         return { dir: res.body.dir };
       } catch (e) {
         return { error: `Could not reach slonik-bot serve: ${e.message || e}` };
@@ -86,7 +90,7 @@ globalThis.SlonikTranscriber = (() => {
       if (captionsAreOn()) return true;
       const button = document.querySelector(sel.selCaptionsOn) || document.querySelector(sel.selCaptionsMenu);
       if (button) button.click();
-      return waitFor(captionsAreOn, CAPTIONS_WAIT_MS);
+      return waitFor(() => captionsAreOn() || stopRequested, CAPTIONS_WAIT_MS);
     };
 
     // Hiding the region rather than removing it keeps the caption nodes in
@@ -119,7 +123,9 @@ globalThis.SlonikTranscriber = (() => {
       input.value = text;
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-      const sent = await waitFor(() => input.value === '', CHAT_WAIT_MS);
+      const sent = await waitFor(() => input.value === '' || stopRequested, CHAT_WAIT_MS);
+      // Stopped meanwhile: leave no notice behind for someone to send later.
+      if (stopRequested && input.value === text) input.value = '';
       // An open chat panel narrows the captions area.
       const button = document.querySelector(sel.selChatButton);
       if (button && document.querySelector(sel.selChatInput)) button.click();
@@ -184,9 +190,18 @@ globalThis.SlonikTranscriber = (() => {
       scheduleFlush(0);
     };
 
+    // dropFront gives up the first n queued events, and renumbers the rest so
+    // that the server sees no gap: it applies nothing past a missing seq.
+    // None of them has been applied, since every one is above acked.
+    const dropFront = (n) => {
+      queue = queue.slice(n);
+      for (const ev of queue) ev.seq -= n;
+      lastSeq -= n;
+    };
+
     // send makes one POST of the queue.
     const send = async () => {
-      const batch = queue.slice(0, MAX_BATCH);
+      const batch = queue.slice(0, batchSize);
       let res;
       try {
         res = await deps.request('POST', `/v1/sessions/${session.id}/events`, { events: batch, participants: participants() });
@@ -199,7 +214,24 @@ globalThis.SlonikTranscriber = (() => {
         queue = queue.filter((ev) => ev.seq > acked);
         lastError = '';
         retryMs = retryBase;
+        batchSize = MAX_BATCH;
         if (queue.length) scheduleFlush(FLUSH_DELAY_MS);
+      } else if (res.status === 413) {
+        // Too big for the server's cap: send less, and give up on an event
+        // that is too big by itself.
+        if (batch.length > 1) {
+          batchSize = Math.max(1, Math.floor(batch.length / 2));
+          lastError = errorOf(res);
+        } else {
+          dropFront(1);
+          lastError = 'A caption was too large for slonik-bot serve and was left out';
+        }
+        scheduleFlush(0);
+      } else if (res.status === 400) {
+        // Sending the same events again would fail the same way.
+        dropFront(batch.length);
+        lastError = `slonik-bot serve refused ${batch.length} caption events: ${errorOf(res)}`;
+        if (queue.length) scheduleFlush(0);
       } else if (res.status === 404 && transcribing) {
         await renew();
       } else {
@@ -220,6 +252,7 @@ globalThis.SlonikTranscriber = (() => {
       try {
         ev = JSON.parse(json);
       } catch (e) {
+        lastError = `Could not read a caption from the page: ${e.message || e}`;
         return;
       }
       if (ev.speaker === 'You' && settings.displayName) ev.speaker = settings.displayName;
@@ -229,8 +262,9 @@ globalThis.SlonikTranscriber = (() => {
       scheduleFlush(FLUSH_DELAY_MS);
     };
 
-    const stop = async () => {
-      if (!transcribing) return { error: 'Not transcribing' };
+    // endSession sends what is queued (one try), stops the session and puts
+    // the page back as it was.
+    const endSession = async () => {
       transcribing = false;
       clearTimeout(flushTimer);
       clearInterval(heartbeat);
@@ -238,7 +272,17 @@ globalThis.SlonikTranscriber = (() => {
       flushTimer = heartbeat = endWatch = null;
       if (inFlight) await inFlight;
       if (queue.length) await flush();
-      const result = await stopSession();
+      let result = await stopSession();
+      if (result.status === 404) {
+        // The server restarted since the last POST that reached it.
+        result = {
+          error: queue.length
+            ? `slonik-bot serve no longer has this session, probably because it restarted; ${queue.length} caption events were not saved`
+            : 'slonik-bot serve no longer has this session, probably because it restarted',
+        };
+      } else {
+        delete result.status;
+      }
       if (result.error) lastError = result.error;
       showCaptions();
       session = null;
@@ -246,19 +290,44 @@ globalThis.SlonikTranscriber = (() => {
       return result;
     };
 
-    const start = async () => {
-      if (transcribing) return { ok: true, dir: session.dir };
+    // A stop() whilst start() is under way has start end the session it
+    // opened, and returns what that gave.
+    const stop = async () => {
+      if (starting) {
+        stopRequested = true;
+        transcribing = false;
+        stopResult = { error: 'Not transcribing' };
+        await starting;
+        return stopResult;
+      }
+      if (!transcribing) return { error: 'Not transcribing' };
+      return endSession();
+    };
+
+    // run is start's work. After each wait it checks whether stop() was
+    // called meanwhile, and if so ends the session rather than going on.
+    const run = async () => {
+      stopRequested = false;
+      const stopped = async () => {
+        stopResult = await endSession();
+        return { ok: false, error: 'Stopped' };
+      };
       if (!(await openSession())) return { ok: false, error: lastError };
+      if (stopRequested) return stopped();
       lastSeq = acked;
-      if (!(await turnOnCaptions())) {
+      const on = await turnOnCaptions();
+      if (stopRequested) return stopped();
+      if (!on) {
         await stopSession();
         session = null;
         lastError = 'Could not turn on captions; press c in Meet and try again';
+        if (stopRequested) stopResult = { error: lastError };
         return { ok: false, error: lastError };
       }
       if (settings.hideCaptions) hideCaptions();
       transcribing = true;
       chatError = notice ? await postChat(notice) : '';
+      if (stopRequested) return stopped();
       heartbeat = setInterval(flush, heartbeatMs);
       endWatch = setInterval(() => {
         if (transcribing && callOver()) stop();
@@ -266,6 +335,16 @@ globalThis.SlonikTranscriber = (() => {
       const result = { ok: true, dir: session.dir };
       if (chatError) result.chatError = chatError;
       return result;
+    };
+
+    // A second start() whilst one is under way gets the same promise.
+    const start = () => {
+      if (starting) return starting;
+      if (transcribing) return Promise.resolve({ ok: true, dir: session.dir });
+      starting = run().finally(() => {
+        starting = null;
+      });
+      return starting;
     };
 
     const status = () => ({ transcribing, queued: queue.length, acked, chatError, lastError });

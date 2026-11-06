@@ -27,15 +27,23 @@ type call struct {
 }
 
 // The shim stands in for the extension's content script: request is fetch
-// with the token. While window.__fail is above zero, a request fails: first
+// with the token. While window.__fail is above zero, any request fails: first
 // with a network error before anything is sent, then with a 503 that hides
 // the server's real answer, so that the events it carried are sent again.
-// window.__created counts the sessions the server has created.
+// window.__tooBig, if set, is given each batch of events and answers 413 for
+// it, without sending, when it returns true. window.__requests counts
+// requests and window.__created the sessions the server has created.
 const shim = `(() => {
   const base = %s, token = %s;
   window.__fail = 0;
   window.__created = 0;
+  window.__requests = 0;
+  window.__tooBig = null;
   const request = async (method, path, body) => {
+    window.__requests++;
+    if (window.__tooBig && path.endsWith('/events') && window.__tooBig(body.events)) {
+      return { status: 413, body: { error: 'request body too large' } };
+    }
     if (window.__fail > 1) {
       window.__fail--;
       throw new TypeError('Failed to fetch');
@@ -60,14 +68,16 @@ const shim = `(() => {
     code: 'abc-defg-hij',
     now: () => Date.now(),
     retryMs: 50,
+    heartbeatMs: %d,
   });
   window.__t = t;
   window.__slonikCaption = t.onCaption;
 })()`
 
 // joinCall starts the server, opens and joins the fake call, and loads the
-// extension's scripts into it.
-func joinCall(t *testing.T) *call {
+// extension's scripts into it. A zero heartbeat means one too long to happen
+// during a test, so that none can use up a window.__fail.
+func joinCall(t *testing.T, heartbeat time.Duration) *call {
 	t.Helper()
 	path := browser.Find("")
 	if path == "" {
@@ -111,7 +121,10 @@ func joinCall(t *testing.T) *call {
 		}
 		c.eval(string(src), nil)
 	}
-	c.eval(fmt.Sprintf(shim, jsonString(t, srv.base), jsonString(t, testToken)), nil)
+	if heartbeat == 0 {
+		heartbeat = 10 * time.Minute
+	}
+	c.eval(fmt.Sprintf(shim, jsonString(t, srv.base), jsonString(t, testToken), heartbeat.Milliseconds()), nil)
 	src, err := os.ReadFile(filepath.Join("..", "..", "extension", "observer.js"))
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +239,7 @@ func texts(t *testing.T, dir string) []string {
 }
 
 func TestTranscriberRecordsFakeMeet(t *testing.T) {
-	c := joinCall(t)
+	c := joinCall(t, 0)
 	r := c.start()
 	until(t, "captions on", c.meet.CaptionsOn)
 	until(t, "the chat notice", func() bool {
@@ -259,7 +272,7 @@ func TestTranscriberRecordsFakeMeet(t *testing.T) {
 }
 
 func TestTranscriberSurvivesServerRestart(t *testing.T) {
-	c := joinCall(t)
+	c := joinCall(t, 0)
 	first := c.start().Dir
 	c.meet.Caption(1, "Alice Example", "Before the restart.")
 	c.sent(1)
@@ -287,7 +300,7 @@ func TestTranscriberSurvivesServerRestart(t *testing.T) {
 }
 
 func TestTranscriberRetriesAfterFailure(t *testing.T) {
-	c := joinCall(t)
+	c := joinCall(t, 0)
 	dir := c.start().Dir
 	c.eval(`window.__fail = 2`, nil)
 	c.meet.Caption(1, "Alice Example", "First.")
@@ -308,5 +321,84 @@ func TestTranscriberRetriesAfterFailure(t *testing.T) {
 		if n := strings.Count(got, want); n != 1 {
 			t.Errorf("%q appears %d times in %q", want, n, got)
 		}
+	}
+}
+
+// A stop during start's chat step ends the session start opened, and leaves
+// nothing running.
+func TestTranscriberStopDuringStart(t *testing.T) {
+	c := joinCall(t, 100*time.Millisecond)
+	// The chat box never empties, so start waits in its chat step.
+	c.eval(`document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'TEXTAREA') e.stopImmediatePropagation();
+}, true)`, nil)
+	var r struct {
+		Same  bool        `json:"same"`
+		Start startResult `json:"start"`
+		Stop  struct {
+			Dir   string `json:"dir"`
+			Error string `json:"error"`
+		} `json:"stop"`
+	}
+	c.eval(`(async () => {
+  const p = window.__t.start();
+  const same = window.__t.start() === p;
+  await new Promise((resolve) => {
+    const look = () => document.querySelector('textarea[aria-label="Send a message"]') ? resolve() : setTimeout(look, 20);
+    look();
+  });
+  const stop = await window.__t.stop();
+  return { same, start: await p, stop };
+})()`, &r)
+	if !r.Same {
+		t.Error("a second start did not return the first one's promise")
+	}
+	if r.Start.OK || r.Start.Error != "Stopped" {
+		t.Errorf("start: %+v", r.Start)
+	}
+	if r.Stop.Dir == "" || r.Stop.Error != "" {
+		t.Errorf("stop: %+v", r.Stop)
+	}
+	if code := c.srv.post("/v1/sessions", map[string]string{"code": "abc-defg-hij", "tab": "2"}, nil); code != 201 {
+		t.Errorf("the session is still open: a new one got %d", code)
+	}
+
+	var before, after int
+	c.eval(`window.__requests`, &before)
+	time.Sleep(500 * time.Millisecond) // five heartbeats
+	c.eval(`window.__requests`, &after)
+	if after != before {
+		t.Errorf("%d requests after stop", after-before)
+	}
+	if s := c.status(); s.Transcribing {
+		t.Errorf("still transcribing: %+v", s)
+	}
+}
+
+// A 413 halves the batch, and an event too big by itself is left out.
+func TestTranscriberSplitsOversizedBatches(t *testing.T) {
+	c := joinCall(t, 0)
+	dir := c.start().Dir
+	c.eval(`window.__tooBig = (evs) => evs.length > 2 || evs.some((e) => e.text === 'Too long.')`, nil)
+	c.meet.InOneTask(func() {
+		c.meet.Caption(1, "Alice Example", "First.")
+		c.meet.Caption(2, "Bob Example", "Too long.")
+		c.meet.Caption(3, "Alice Example", "Second.")
+		c.meet.Caption(4, "Bob Example", "Third.")
+	})
+	c.meet.Caption(5, "Alice Example", "Fourth.")
+	// Five captions less the one left out.
+	c.sent(4)
+	c.stop()
+	c.srv.shutdown()
+
+	got := strings.Join(texts(t, dir), " ")
+	for _, want := range []string{"First.", "Second.", "Third.", "Fourth."} {
+		if n := strings.Count(got, want); n != 1 {
+			t.Errorf("%q appears %d times in %q", want, n, got)
+		}
+	}
+	if strings.Contains(got, "Too long.") {
+		t.Errorf("the oversized caption was sent: %q", got)
 	}
 }
