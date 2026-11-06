@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/dpage/slonik-bot/internal/browser"
 	"github.com/dpage/slonik-bot/internal/config"
 	"github.com/dpage/slonik-bot/internal/meet"
+	"github.com/dpage/slonik-bot/internal/server"
 	"github.com/dpage/slonik-bot/internal/summary"
 	"github.com/dpage/slonik-bot/internal/version"
 )
@@ -30,6 +32,7 @@ const usage = `usage: slonik-bot <command> [flags]
 commands:
   login                     sign the bot's Chrome profile in to Google
   join <code-or-url>        join a meeting, transcribe it and summarise it
+  serve                     run the local server that the Chrome extension posts captions to
   summarise <transcript>    re-run the summary for a saved transcript.jsonl
   version                   print the version
 
@@ -66,6 +69,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitOK
 	case "join":
 		return join(args[1:], stdout, stderr)
+	case "serve":
+		return serve(args[1:], stdout, stderr)
 	case "summarise":
 		return summarise(args[1:], stdout, stderr)
 	case "login":
@@ -304,6 +309,76 @@ func summarise(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	fmt.Fprintln(stdout, "Summary written.")
+	return exitOK
+}
+
+func serve(args []string, stdout, stderr io.Writer) int {
+	c := newFlags("serve", "serve [flags]", stderr, true,
+		"directory to hold the meeting notes folders (default: output_dir from the config)")
+	noSummary := c.fs.Bool("no-summary", false, "save transcripts without asking a model for a summary")
+	provider := c.fs.String("llm-provider", "", "summary model provider: anthropic or openai (default: from the config)")
+	model := c.fs.String("llm-model", "", "summary model (default: from the config)")
+	pos, code := c.parse(args)
+	if code >= 0 {
+		return code
+	}
+	if len(pos) != 0 {
+		fmt.Fprintln(stderr, "slonik-bot: serve takes no arguments")
+		c.fs.Usage()
+		return exitUsage
+	}
+	log := c.logger(stderr)
+
+	cfg, err := c.load()
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if c.out != "" {
+		cfg.OutputDir = c.out
+	}
+	if *provider != "" {
+		cfg.LLM.Provider = *provider
+	}
+	if *model != "" {
+		cfg.LLM.Model = *model
+	}
+	if err := cfg.Validate(); err != nil {
+		return fail(stderr, err)
+	}
+	// Checked before listening, so a missing key costs nothing.
+	var llm summary.LLM
+	if !*noSummary {
+		if llm, err = summary.New(cfg.LLM); err != nil {
+			return fail(stderr, err)
+		}
+	}
+	token, created, err := cfg.Serve.Token()
+	if err != nil {
+		return fail(stderr, err)
+	}
+
+	// Loopback only, and by address rather than "localhost", which may
+	// resolve to something else.
+	port := cfg.Serve.Port
+	ctx, stop := signalContext()
+	defer stop()
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return fail(stderr, fmt.Errorf("listening on port %d (serve.port in the config): %w", port, err))
+	}
+	defer func() { _ = ln.Close() }()
+
+	fmt.Fprintf(stdout, "Listening on http://127.0.0.1:%d; press Ctrl-C to stop.\n", port)
+	if created {
+		fmt.Fprintf(stdout, "Token (paste into the extension's options): %s\n", token)
+	} else {
+		fmt.Fprintf(stdout, "Token: in %s\n", cfg.Serve.TokenFile)
+	}
+	srv := server.New(server.Options{Config: cfg, Port: port, Token: token, LLM: llm, Logger: log})
+	if err := srv.Run(ctx, ln); err != nil {
+		return fail(stderr, err)
+	}
 	return exitOK
 }
 

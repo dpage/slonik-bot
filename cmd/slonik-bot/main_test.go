@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -203,5 +205,48 @@ func TestJoinResultNamesTheFolder(t *testing.T) {
 	errb.Reset()
 	if code := joinResult(bot.Outcome{Dir: dir, Reason: "ended", Summarised: true}, nil, &out, &errb); code != 0 || !strings.Contains(out.String(), dir) {
 		t.Fatalf("exit %d stdout %q", code, out.String())
+	}
+}
+
+func TestServeRejectsArguments(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := run([]string{"serve", "extra"}, &out, &errb); code != exitUsage {
+		t.Fatalf("exit %d stderr %q", code, errb.String())
+	}
+}
+
+func TestServeHelp(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := run([]string{"serve", "--help"}, &out, &errb); code != exitOK {
+		t.Fatalf("exit %d stderr %q", code, errb.String())
+	}
+	for _, flag := range []string{"-config", "-out", "-verbose", "-no-summary", "-llm-provider", "-llm-model"} {
+		if !strings.Contains(errb.String(), flag) {
+			t.Errorf("help does not list %s: %q", flag, errb.String())
+		}
+	}
+}
+
+func TestServePortInUse(t *testing.T) {
+	noKeys(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	cfg := fmt.Sprintf("serve:\n  port: %d\n  token_file: %s\n", port, filepath.Join(dir, "token"))
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	code := run([]string{"serve", "--no-summary", "--config", cfgPath}, &out, &errb)
+	if code != exitFailure || !strings.Contains(errb.String(), "serve.port") {
+		t.Fatalf("exit %d stderr %q", code, errb.String())
+	}
+	if strings.Contains(out.String(), "Listening") {
+		t.Fatalf("claimed to listen: %q", out.String())
 	}
 }
