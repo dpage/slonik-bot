@@ -114,6 +114,12 @@
     watch = setInterval(follow, 1000);
   };
 
+  // The call's code, from /abc-defg-hij or /meet/abc-defg-hij; '' elsewhere.
+  const meetingCode = () => {
+    const m = /^\/(?:meet\/)?([a-z]{3}-[a-z]{4}-[a-z]{3})\/?$/.exec(location.pathname);
+    return m ? m[1] : '';
+  };
+
   const start = async () => {
     if (current && (starting || current.status().transcribing)) return current.start();
     const stored = await chrome.storage.local.get(['displayName', 'hideCaptions']);
@@ -124,7 +130,7 @@
         hideCaptions: stored.hideCaptions !== false,
       },
       tab,
-      code: location.pathname.replace(/^\/|\/$/g, ''),
+      code: meetingCode(),
       now: () => Date.now(),
     });
     starting = true;
@@ -165,7 +171,7 @@
       sendResponse({
         ...(current ? current.status() : { transcribing: false, queued: 0, chatError: '', lastError: '' }),
         starting,
-        inCall: /^\/[a-z]{3}-[a-z]{4}-[a-z]{3}\/?$/.test(location.pathname),
+        inCall: meetingCode() !== '',
       });
       return false;
     }
