@@ -29,6 +29,7 @@ func TestExtensionSelectorsMatch(t *testing.T) {
 		"selCaptionsRegion":     selCaptionsRegion,
 		"selChatButton":         selChatButton,
 		"selChatInput":          selChatInput,
+		"selLeave":              selLeave,
 		"selParticipantMenus":   selParticipantMenus,
 		"participantMenuPrefix": participantMenuPrefix,
 	}

@@ -146,12 +146,12 @@ globalThis.SlonikTranscriber = (() => {
       return Array.from(names);
     };
 
-    // The whole page is read only once Meet's captions control has gone, as
-    // in meet.Status: during the call a caption saying "you left the
-    // meeting" would otherwise end the recording.
+    // The whole page is read only once Meet's in-call controls (the captions
+    // controls and Leave) have gone, as in meet.Status: during the call a
+    // caption saying "you left the meeting" would otherwise end the recording.
     const callOver = () => {
       if (!document.body) return false;
-      if ([sel.selCaptionsOn, sel.selCaptionsOff, sel.selCaptionsMenu].some((s) => document.querySelector(s))) return false;
+      if ([sel.selCaptionsOn, sel.selCaptionsOff, sel.selCaptionsMenu, sel.selLeave].some((s) => document.querySelector(s))) return false;
       const text = document.body.innerText.replace(/\u2019/g, "'");
       return sel.textsEnded.concat(sel.textsRemoved).some((t) => text.includes(t));
     };

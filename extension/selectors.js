@@ -8,6 +8,7 @@ globalThis.SlonikSelectors = {
   selCaptionsRegion: "[role=\"region\"][aria-label=\"Captions\"], div[role=\"region\"][tabindex=\"0\"]",
   selChatButton: "button[aria-label=\"Chat with everyone\"]",
   selChatInput: "textarea[aria-label=\"Send a message\"]",
+  selLeave: "button[aria-label=\"Leave call\"]",
   selParticipantMenus: "[aria-label^=\"More options for \"]",
   participantMenuPrefix: "More options for ",
   textsEnded: ["The call ended because everyone left", "Your host ended the meeting for everyone", "You left the meeting"],

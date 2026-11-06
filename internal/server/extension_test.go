@@ -383,6 +383,28 @@ func TestTranscriberStopDuringStart(t *testing.T) {
 	}
 }
 
+// The Leave button counts as an in-call control, as in meet.Status: whilst it
+// is there, ended text on the page does not end the recording.
+func TestTranscriberLeaveButtonKeepsCallGoing(t *testing.T) {
+	c := joinCall(t, 0)
+	c.start()
+	c.eval(`(() => {
+  const s = SlonikSelectors;
+  for (const sel of [s.selCaptionsOn, s.selCaptionsOff, s.selCaptionsMenu]) {
+    document.querySelectorAll(sel).forEach((el) => el.remove());
+  }
+  const d = document.createElement('div');
+  d.textContent = 'You left the meeting';
+  document.body.appendChild(d);
+})()`, nil)
+	time.Sleep(3 * time.Second) // longer than the end check's interval
+	if s := c.status(); !s.Transcribing {
+		t.Fatalf("stopped with the Leave button still there: %+v", s)
+	}
+	c.eval(`document.querySelector(SlonikSelectors.selLeave).remove()`, nil)
+	until(t, "the end of the recording", func() bool { return !c.status().Transcribing })
+}
+
 // A chat notice that could not be posted reaches the server's log, sent once
 // with the next POST rather than with every heartbeat.
 func TestTranscriberReportsChatError(t *testing.T) {
