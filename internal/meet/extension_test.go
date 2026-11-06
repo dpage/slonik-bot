@@ -26,6 +26,7 @@ func TestExtensionSelectorsMatch(t *testing.T) {
 		"selCaptionsOn":         selCaptionsOn,
 		"selCaptionsOff":        selCaptionsOff,
 		"selCaptionsMenu":       selCaptionsMenu,
+		"selCaptionsDialog":     selCaptionsDialog,
 		"selCaptionsRegion":     selCaptionsRegion,
 		"selChatButton":         selChatButton,
 		"selChatInput":          selChatInput,

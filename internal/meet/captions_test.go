@@ -88,6 +88,22 @@ func TestCaptionsMenuButton(t *testing.T) {
 	checkFlow(t, fakemeet.Scenario{CaptionsMenu: true})
 }
 
+// The menu button opens a dialog whose "Turn on captions" is clicked, without
+// falling back to the c key, and the dialog is closed again.
+func TestCaptionsMenuDialog(t *testing.T) {
+	s, srv := joined(t, fakemeet.Scenario{CaptionsMenu: true})
+	if err := s.StartCaptions(ctxT(t), "", make(chan captions.Event, 64)); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "captions on", srv.CaptionsOn)
+	eventually(t, "the captions dialog opened and closed", func() bool {
+		return srv.CaptionsDialogUsed() && !srv.CaptionsDialogOpen()
+	})
+	if srv.CaptionsKeyPressed() {
+		t.Error("pressed c rather than clicking Turn on captions")
+	}
+}
+
 func TestCaptionsSurviveRegionReplacement(t *testing.T) {
 	s, srv := joined(t, fakemeet.Scenario{})
 	events := make(chan captions.Event, 64)

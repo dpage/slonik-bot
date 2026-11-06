@@ -25,6 +25,7 @@ const (
 	selCaptionsOn         = `button[aria-label="Turn on captions"]`
 	selCaptionsOff        = `button[aria-label="Turn off captions"]`
 	selCaptionsMenu       = `button[aria-label="Captions and translation"]`
+	selCaptionsDialog     = `[role="dialog"][aria-label="Captions and translation"]`
 	selCaptionsRegion     = `[role="region"][aria-label="Captions"], div[role="region"][tabindex="0"]`
 	selMoreOptions        = `button[aria-label="More options"]`
 	xpSettings            = `//li[.//span[text()="Settings"]]`

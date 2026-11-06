@@ -87,11 +87,20 @@ globalThis.SlonikTranscriber = (() => {
       return menu !== null && menu.getAttribute('aria-pressed') === 'true';
     };
 
+    // Meet's "Captions and translation" button opens a dialog holding the
+    // "Turn on captions" button; this clicks it, then closes the dialog again.
     const turnOnCaptions = async () => {
       if (captionsAreOn()) return true;
-      const button = document.querySelector(sel.selCaptionsOn) || document.querySelector(sel.selCaptionsMenu);
-      if (button) button.click();
-      return waitFor(() => captionsAreOn() || stopRequested, CAPTIONS_WAIT_MS);
+      let button = document.querySelector(sel.selCaptionsOn);
+      const menu = button ? null : document.querySelector(sel.selCaptionsMenu);
+      if (menu) {
+        menu.click();
+        await waitFor(() => (button = document.querySelector(sel.selCaptionsOn)) !== null || captionsAreOn() || stopRequested, CAPTIONS_WAIT_MS);
+      }
+      if (button && !captionsAreOn()) button.click();
+      const on = await waitFor(() => captionsAreOn() || stopRequested, CAPTIONS_WAIT_MS);
+      if (menu && document.querySelector(sel.selCaptionsDialog)) menu.click();
+      return on;
     };
 
     // Hiding the region rather than removing it keeps the caption nodes in

@@ -24,7 +24,7 @@
   var deferred = [];
   var pendingAdmit = false, pendingDeny = false;
   var region = null, blocks = {}, wrapper = null;
-  var callEl = null, peopleEl = null, panelEl = null, dialogHolder = null, menuHolder = null;
+  var captionsDialogEl = null, callEl = null, peopleEl = null, panelEl = null, dialogHolder = null, menuHolder = null;
 
   function el(tag, attrs, text) {
     var e = document.createElement(tag);
@@ -121,11 +121,25 @@
   function setCaptions(on) {
     captionsOn = on;
     var btn = callEl && callEl.querySelector("[data-captions-control]");
-    if (btn) {
-      if (sc.captionsMenu) { btn.setAttribute("aria-pressed", on ? "true" : "false"); }
-      else { btn.setAttribute("aria-label", on ? "Turn off captions" : "Turn on captions"); }
-    }
+    var toggle = sc.captionsMenu ? captionsDialogEl && captionsDialogEl.querySelector("button") : btn;
+    if (sc.captionsMenu && btn) { btn.setAttribute("aria-pressed", on ? "true" : "false"); }
+    if (toggle) { toggle.setAttribute("aria-label", on ? "Turn off captions" : "Turn on captions"); }
     report(on ? "captions-on" : "captions-off");
+  }
+
+  function toggleCaptionsDialog() {
+    if (captionsDialogEl) {
+      captionsDialogEl.remove();
+      captionsDialogEl = null;
+      report("captions-dialog-closed");
+      return;
+    }
+    captionsDialogEl = el("div", { role: "dialog", "aria-label": "Captions and translation" });
+    var toggle = el("button", { "aria-label": captionsOn ? "Turn off captions" : "Turn on captions" });
+    toggle.addEventListener("click", function () { setCaptions(!captionsOn); });
+    captionsDialogEl.appendChild(toggle);
+    callEl.appendChild(captionsDialogEl);
+    report("captions-dialog-opened");
   }
 
   function renderPeople() {
@@ -156,7 +170,13 @@
     callEl.appendChild(deviceButton("camera", sc.inCallClicksIgnored || 0));
 
     capBtn.setAttribute("data-captions-control", "1");
-    capBtn.addEventListener("click", function () { setCaptions(!captionsOn); });
+    if (sc.captionsMenu) {
+      // As in Meet, the menu button opens a dialog holding the captions toggle,
+      // which stays open after the toggle is clicked.
+      capBtn.addEventListener("click", toggleCaptionsDialog);
+    } else {
+      capBtn.addEventListener("click", function () { setCaptions(!captionsOn); });
+    }
     callEl.appendChild(capBtn);
 
     region = makeRegion();
@@ -328,7 +348,7 @@
     if (state !== "call" || ev.ctrlKey || ev.metaKey || ev.altKey) { return; }
     var t = ev.target;
     if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT")) { return; }
-    if (ev.key === "c") { setCaptions(!captionsOn); }
+    if (ev.key === "c") { report("captions-key"); setCaptions(!captionsOn); }
   });
 
   // Each command runs in its own task, as each of Meet's updates does, so a

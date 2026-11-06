@@ -84,11 +84,17 @@ const shim = `(() => {
 // adjusts the server's Options after the defaults here.
 func joinCall(t *testing.T, heartbeat time.Duration, change ...func(*Options)) *call {
 	t.Helper()
+	return joinCallIn(t, fakemeet.Scenario{}, heartbeat, change...)
+}
+
+// joinCallIn is joinCall in the given variant of the fake Meet page.
+func joinCallIn(t *testing.T, sc fakemeet.Scenario, heartbeat time.Duration, change ...func(*Options)) *call {
+	t.Helper()
 	path := browser.Find("")
 	if path == "" {
 		t.Skip("no Chrome or Chromium found")
 	}
-	m := fakemeet.New()
+	m := fakemeet.NewWithScenario(sc)
 	t.Cleanup(m.Close)
 	srv := start(t, func(o *Options) {
 		o.AllowOrigin = func(origin string) bool { return origin == m.URL }
@@ -381,6 +387,17 @@ func TestTranscriberStopDuringStart(t *testing.T) {
 	if s := c.status(); s.Transcribing {
 		t.Errorf("still transcribing: %+v", s)
 	}
+}
+
+// Meet's "Captions and translation" button opens a dialog; the transcriber
+// clicks "Turn on captions" there and closes the dialog again.
+func TestTranscriberCaptionsMenuDialog(t *testing.T) {
+	c := joinCallIn(t, fakemeet.Scenario{CaptionsMenu: true}, 0)
+	c.start()
+	until(t, "captions on", c.meet.CaptionsOn)
+	until(t, "the captions dialog opened and closed", func() bool {
+		return c.meet.CaptionsDialogUsed() && !c.meet.CaptionsDialogOpen()
+	})
 }
 
 // The Leave button counts as an in-call control, as in meet.Status: whilst it

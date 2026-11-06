@@ -119,6 +119,11 @@ func turnOnCaptions(ctx context.Context) error {
 		if err := click(ctx, c.what, c.sel); err != nil && ctx.Err() != nil {
 			return ctx.Err()
 		}
+		if c.sel == selCaptionsMenu {
+			if err := clickCaptionsInDialog(ctx); err != nil {
+				return err
+			}
+		}
 		break
 	}
 	if !clicked {
@@ -142,6 +147,35 @@ func turnOnCaptions(ctx context.Context) error {
 	}
 	if !on {
 		return fmt.Errorf("meet: captions did not turn on (looked for %s, %s)", selCaptionsOn, selCaptionsMenu)
+	}
+	// Close the captions dialog if it is still open.
+	open, err := present(ctx, selCaptionsDialog)
+	if err != nil || !open {
+		return err
+	}
+	if err := click(ctx, "captions menu button", selCaptionsMenu); err != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return nil
+}
+
+// clickCaptionsInDialog clicks "Turn on captions" in the dialog that Meet's
+// "Captions and translation" button opens. A dialog that does not appear is
+// left to the c key in turnOnCaptions, so only the end of ctx is returned.
+func clickCaptionsInDialog(ctx context.Context) error {
+	on := false
+	shown, err := waitFor(ctx, clickTimeout, func() (bool, error) {
+		var err error
+		if on, err = captionsShown(ctx); err != nil || on {
+			return on, err
+		}
+		return present(ctx, selCaptionsOn)
+	})
+	if err != nil || !shown || on {
+		return err
+	}
+	if err := click(ctx, "captions button", selCaptionsOn); err != nil && ctx.Err() != nil {
+		return ctx.Err()
 	}
 	return nil
 }

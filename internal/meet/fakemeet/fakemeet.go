@@ -29,7 +29,7 @@ type Scenario struct {
 	SignedOut     bool   `json:"signedOut"`     // pre-join shows the "Your name" field and "Ask to join"
 	NotFound      bool   `json:"notFound"`      // page shows "Check your meeting code" and no join button
 	Lobby         bool   `json:"lobby"`         // join button reads "Ask to join"; waits for Admit or Deny
-	CaptionsMenu  bool   `json:"captionsMenu"`  // in call, "Captions and translation" replaces "Turn on captions"
+	CaptionsMenu  bool   `json:"captionsMenu"`  // in call, "Captions and translation" opens a dialog holding "Turn on captions"
 	PlainCaptions bool   `json:"plainCaptions"` // caption blocks carry no Meet class names
 	SelfName      string `json:"selfName"`      // the bot's own tile name; "" means "Slonik Bot (Meeting Transcriber)"
 
@@ -67,17 +67,21 @@ type Server struct {
 
 	closeOnce sync.Once
 
-	mu         sync.Mutex
-	cmds       []queuedCommand
-	changed    chan struct{}   // closed and replaced whenever cmds grows
-	batch      []queuedCommand // non-nil while InOneTask collects commands
-	joined     bool
-	micOff     bool
-	cameraOff  bool
-	micSeq     int // Seq of the report micOff came from
-	cameraSeq  int
-	captionsOn bool
-	language   string
+	mu                 sync.Mutex
+	cmds               []queuedCommand
+	changed            chan struct{}   // closed and replaced whenever cmds grows
+	batch              []queuedCommand // non-nil while InOneTask collects commands
+	joined             bool
+	micOff             bool
+	cameraOff          bool
+	micSeq             int // Seq of the report micOff came from
+	cameraSeq          int
+	captionsOn         bool
+	captionsDialog     bool
+	captionsDialogSeq  int
+	captionsKey        bool
+	captionsDialogUsed bool
+	language           string
 	// What the page got when it asked for each device: a DOMException name
 	// such as "NotAllowedError", "granted", or "permission <state>" when it
 	// did not ask because the permission was not denied.
@@ -192,6 +196,18 @@ func (s *Server) CameraOff() bool { return s.read(func() bool { return s.cameraO
 
 // CaptionsOn reports whether captions are currently switched on.
 func (s *Server) CaptionsOn() bool { return s.read(func() bool { return s.captionsOn }) }
+
+// CaptionsDialogOpen reports whether the CaptionsMenu scenario's captions
+// dialog is open.
+func (s *Server) CaptionsDialogOpen() bool { return s.read(func() bool { return s.captionsDialog }) }
+
+// CaptionsDialogUsed reports whether the captions dialog was ever opened.
+func (s *Server) CaptionsDialogUsed() bool {
+	return s.read(func() bool { return s.captionsDialogUsed })
+}
+
+// CaptionsKeyPressed reports whether c, Meet's captions shortcut, was pressed.
+func (s *Server) CaptionsKeyPressed() bool { return s.read(func() bool { return s.captionsKey }) }
 
 // Left reports whether the bot pressed Leave call.
 func (s *Server) Left() bool { return s.read(func() bool { return s.left }) }
@@ -309,6 +325,13 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		s.captionsOn = true
 	case "captions-off":
 		s.captionsOn = false
+	case "captions-key":
+		s.captionsKey = true
+	case "captions-dialog-opened", "captions-dialog-closed":
+		s.captionsDialogUsed = s.captionsDialogUsed || rep.Kind == "captions-dialog-opened"
+		if rep.Seq > s.captionsDialogSeq {
+			s.captionsDialog, s.captionsDialogSeq = rep.Kind == "captions-dialog-opened", rep.Seq
+		}
 	case "language":
 		s.language = rep.Value
 	case "chat":
