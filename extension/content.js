@@ -25,6 +25,7 @@
 
   let current = null; // the transcriber
   let starting = false;
+  let active = false; // the port and badge are in use
   let port = null;
   let portID = '';
   let watch = null;
@@ -35,17 +36,57 @@
   };
 
   const sessionID = (s) => s.sessionId || '';
+  const tell = (msg) => chrome.runtime.sendMessage(msg).catch(() => {});
+
+  // A port to a stopped service worker throws on use, so none of these calls
+  // may be allowed to stop what follows them.
+  const post = (msg) => {
+    try {
+      port.postMessage(msg);
+    } catch (e) {
+      // The port's onDisconnect reconnects.
+    }
+  };
 
   const closePort = () => {
     clearInterval(watch);
     watch = null;
     if (port) {
-      port.postMessage({ done: true });
-      port.disconnect();
+      post({ done: true });
+      try {
+        port.disconnect();
+      } catch (e) {
+        // Already gone.
+      }
     }
     port = null;
     portID = '';
-    chrome.runtime.sendMessage({ type: 'state', transcribing: false }).catch(() => {});
+    if (active) {
+      active = false;
+      tell({ type: 'state', transcribing: false });
+    }
+  };
+
+  // connect opens the port and tells the service worker the session id and
+  // the badge state. Chrome stops the worker when it has been idle, which
+  // closes the port; a new worker then needs telling again.
+  const connect = () => {
+    let p;
+    try {
+      p = chrome.runtime.connect({ name: 'transcribing' });
+    } catch (e) {
+      return; // follow tries again
+    }
+    port = p;
+    p.onDisconnect.addListener(() => {
+      if (port !== p) return;
+      port = null;
+      portID = '';
+      if (active && current && current.status().transcribing) connect();
+    });
+    portID = sessionID(current.status());
+    post({ sessionId: portID });
+    tell({ type: 'state', transcribing: true });
   };
 
   // follow keeps the port and badge in step with the transcriber, which can
@@ -54,21 +95,22 @@
   const follow = () => {
     const s = current.status();
     if (!s.transcribing) {
-      closePort();
+      if (active) closePort();
       return;
     }
-    if (port && sessionID(s) && sessionID(s) !== portID) {
+    if (!active) return;
+    if (!port) {
+      connect();
+    } else if (sessionID(s) && sessionID(s) !== portID) {
       portID = sessionID(s);
-      port.postMessage({ sessionId: portID });
+      post({ sessionId: portID });
     }
   };
 
   const openPort = () => {
-    if (port) return;
-    port = chrome.runtime.connect({ name: 'transcribing' });
-    portID = sessionID(current.status());
-    port.postMessage({ sessionId: portID });
-    chrome.runtime.sendMessage({ type: 'state', transcribing: true }).catch(() => {});
+    if (active) return;
+    active = true;
+    connect();
     watch = setInterval(follow, 1000);
   };
 
@@ -98,7 +140,7 @@
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'start') {
-      start().then(sendResponse);
+      start().then(sendResponse, (e) => sendResponse({ ok: false, error: String(e.message || e) }));
       return true;
     }
     if (msg.type === 'stop') {
@@ -106,10 +148,16 @@
         sendResponse({ error: 'Not transcribing' });
         return false;
       }
-      current.stop().then((result) => {
-        closePort();
-        sendResponse(result);
-      });
+      current.stop().then(
+        (result) => {
+          closePort();
+          sendResponse(result);
+        },
+        (e) => {
+          closePort();
+          sendResponse({ error: String(e.message || e) });
+        },
+      );
       return true;
     }
     if (msg.type === 'status') {

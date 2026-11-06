@@ -25,6 +25,7 @@ const ask = async (type) => {
 };
 
 const render = (s) => {
+  if (!s) s = { unavailable: true };
   transcribing = Boolean(s.transcribing);
   const away = Boolean(s.unavailable) || !s.inCall;
   toggle.disabled = busy || away;
