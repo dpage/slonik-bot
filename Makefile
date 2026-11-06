@@ -3,6 +3,7 @@
 #   make         build into ./bin
 #   make test    run the Go tests
 #   make lint    vet, gofmt and golangci-lint
+#   make extension  copy the caption observer into the Chrome extension
 
 SHELL      := /bin/bash
 GO         ?= go
@@ -14,7 +15,7 @@ LDFLAGS    := -X github.com/dpage/slonik-bot/internal/version.Version=$(VERSION)
 
 GOLANGCI_VERSION ?= v2.14.0
 
-.PHONY: all build test lint fmt vet clean
+.PHONY: all build test lint fmt vet clean extension
 
 all: build
 
@@ -34,6 +35,11 @@ lint: vet
 
 vet:
 	$(GO) vet ./...
+
+## extension: copy the caption observer into the Chrome extension, which
+## has no build step of its own
+extension:
+	cp internal/captions/observer.js extension/observer.js
 
 fmt:
 	gofmt -w cmd internal

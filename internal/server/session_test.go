@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -37,6 +38,7 @@ type running struct {
 	base   string
 	out    string // Config.OutputDir
 	llm    *fakeLLM
+	opts   Options
 	cancel context.CancelFunc
 	done   chan error
 }
@@ -64,11 +66,29 @@ func start(t *testing.T, change func(*Options)) *running {
 	if change != nil {
 		change(&o)
 	}
+	return serve(t, ln, o, llm)
+}
+
+// serve runs a Server with o on ln until the test ends.
+func serve(t *testing.T, ln net.Listener, o Options, llm *fakeLLM) *running {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	r := &running{t: t, base: "http://" + ln.Addr().String(), out: cfg.OutputDir, llm: llm, cancel: cancel, done: make(chan error, 1)}
+	r := &running{t: t, base: "http://" + ln.Addr().String(), out: o.Config.OutputDir, llm: llm, opts: o, cancel: cancel, done: make(chan error, 1)}
 	go func() { r.done <- New(o).Run(ctx, ln) }()
 	t.Cleanup(func() { r.shutdown() })
 	return r
+}
+
+// restart stops r and runs a new Server with the same Options on the same
+// port, as a restarted slonik-bot serve would.
+func (r *running) restart() *running {
+	r.t.Helper()
+	r.shutdown()
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", r.opts.Port))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return serve(r.t, ln, r.opts, r.llm)
 }
 
 // shutdown cancels Run and waits for it to return. It is safe to call twice.
