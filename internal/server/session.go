@@ -77,7 +77,10 @@ loop:
 		}
 	}
 
+	// A request still in flight past the grace period must not open a
+	// session that nothing would finish.
 	s.mu.Lock()
+	s.closed = true
 	if s.cur != nil {
 		s.stop(ctx, time.Now(), reasonInterrupted)
 	}
@@ -157,6 +160,10 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		writeError(w, http.StatusServiceUnavailable, "server is shutting down")
+		return
+	}
 	now := time.Now()
 	if cur := s.cur; cur != nil {
 		// The same tab again, after the extension's service worker restarted.

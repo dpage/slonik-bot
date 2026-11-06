@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -376,6 +377,42 @@ func TestShutdownFinishesOpenSession(t *testing.T) {
 	r.shutdown()
 	if _, err := os.Stat(filepath.Join(c.Dir, "summary.md")); err != nil {
 		t.Error(err)
+	}
+}
+
+// A session asked for once Run has stopped the open one is refused, rather
+// than left open with nothing to finish it.
+func TestCreateAfterShutdown503(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.OutputDir = t.TempDir()
+	port := ln.Addr().(*net.TCPAddr).Port
+	s := New(Options{Config: cfg, Port: port, Token: testToken, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := s.Run(ctx, ln); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("POST", "/v1/sessions", strings.NewReader(`{"code": "abc-defg-hij", "tab": "1"}`))
+	req.Host = fmt.Sprintf("127.0.0.1:%d", port)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	var e struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&e); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusServiceUnavailable || e.Error != "server is shutting down" {
+		t.Fatalf("got %d %+v, want 503", w.Code, e)
+	}
+	if ents, _ := os.ReadDir(cfg.OutputDir); len(ents) != 0 {
+		t.Errorf("%d entries left in the output folder", len(ents))
 	}
 }
 

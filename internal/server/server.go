@@ -43,8 +43,9 @@ type Server struct {
 	opts Options
 	log  *slog.Logger
 
-	mu  sync.Mutex
-	cur *session // the one open session, or nil
+	mu     sync.Mutex
+	cur    *session // the one open session, or nil
+	closed bool     // Run has stopped the open session; no more are created
 
 	finishing sync.WaitGroup // notes being written
 }
