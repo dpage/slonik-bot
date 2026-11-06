@@ -122,12 +122,11 @@
 
   const start = async () => {
     if (current && (starting || current.status().transcribing)) return current.start();
-    const stored = await chrome.storage.local.get(['displayName', 'hideCaptions']);
+    const stored = await chrome.storage.local.get(['displayName']);
     current = SlonikTranscriber.create({
       request,
       settings: {
         displayName: stored.displayName || '',
-        hideCaptions: stored.hideCaptions !== false,
       },
       tab,
       code: meetingCode(),

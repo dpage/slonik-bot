@@ -113,7 +113,6 @@ The server listens on `127.0.0.1` only (port 7381 unless you set `serve.port`) a
    - Server URL: `http://127.0.0.1:7381` by default; change it only if you changed `serve.port`.
    - Token: the token from `serve`, for example `<token from serve>`.
    - Your display name: Meet labels your own captions 'You', so this is the name that goes in the transcript instead, for example `Alice Example`.
-   - Hide Meet's captions while transcribing: on by default. It makes Meet's caption area transparent, so you do not see the captions but the extension can still read them.
 4. Choose Test connection; it says 'Connected: slonik-bot' and the server version when the URL and token are right.
 
 The token is kept in the extension's local storage, not in any file in the repository.
@@ -128,7 +127,7 @@ If `serve` restarts during a call, the extension notices that the session has go
 
 ### Limits of the extension route
 
-The 'You' label and the hiding of Meet's captions have not yet been checked in a real call, so treat both as untested. The other limits listed under 'What it does, and its limits' apply here too, in particular that Meet's page markup can change without notice.
+Meet's captions stay on screen whilst the extension transcribes: Meet shrinks the video to make room for them whenever captions are on, and hiding them would only leave an empty space. The other limits listed under 'What it does, and its limits' apply here too, in particular that Meet's page markup can change without notice.
 
 ## Configuration
 

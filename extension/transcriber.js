@@ -103,21 +103,6 @@ globalThis.SlonikTranscriber = (() => {
       return on;
     };
 
-    // Hiding the region rather than removing it keeps the caption nodes in
-    // the DOM, where observer.js reads them.
-    const hideCaptions = () => {
-      if (document.getElementById('slonik-hide')) return;
-      const style = document.createElement('style');
-      style.id = 'slonik-hide';
-      style.textContent = `${sel.selCaptionsRegion} { opacity: 0 !important; pointer-events: none !important; }`;
-      (document.head || document.documentElement).appendChild(style);
-    };
-
-    const showCaptions = () => {
-      const style = document.getElementById('slonik-hide');
-      if (style) style.remove();
-    };
-
     // postChat sends text to the meeting chat, as meet.SendChat does, and
     // returns an error message, or '' once the chat box has emptied.
     const postChat = async (text) => {
@@ -297,7 +282,6 @@ globalThis.SlonikTranscriber = (() => {
         delete result.status;
       }
       if (result.error) lastError = result.error;
-      showCaptions();
       session = null;
       queue = [];
       chatErrorUnsent = false;
@@ -338,7 +322,6 @@ globalThis.SlonikTranscriber = (() => {
         if (stopRequested) stopResult = { error: lastError };
         return { ok: false, error: lastError };
       }
-      if (settings.hideCaptions) hideCaptions();
       transcribing = true;
       chatError = notice ? await postChat(notice) : '';
       chatErrorUnsent = chatError !== '';

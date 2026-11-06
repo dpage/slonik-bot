@@ -67,7 +67,7 @@ const shim = `(() => {
   };
   const t = SlonikTranscriber.create({
     request,
-    settings: { displayName: 'Carol Example', hideCaptions: true },
+    settings: { displayName: 'Carol Example' },
     tab: '1',
     code: 'abc-defg-hij',
     now: () => Date.now(),

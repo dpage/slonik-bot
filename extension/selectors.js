@@ -6,7 +6,6 @@ globalThis.SlonikSelectors = {
   selCaptionsOff: "button[aria-label=\"Turn off captions\"]",
   selCaptionsMenu: "button[aria-label=\"Captions and translation\"]",
   selCaptionsDialog: "[role=\"dialog\"][aria-label=\"Captions and translation\"]",
-  selCaptionsRegion: "[role=\"region\"][aria-label=\"Captions\"], div[role=\"region\"][tabindex=\"0\"]",
   selChatButton: "button[aria-label=\"Chat with everyone\"]",
   selChatInput: "textarea[aria-label=\"Send a message\"]",
   selLeave: "button[aria-label=\"Leave call\"]",
