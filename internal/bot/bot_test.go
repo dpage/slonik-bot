@@ -348,7 +348,7 @@ func TestSummariseWritesTranscriptBeforeTheModelCall(t *testing.T) {
 	md := filepath.Join(dir, "transcript.md")
 	var before []byte
 	llm := &fakeLLM{
-		out:    `{"title":"T","summary":"S","decisions":[],"action_items":[],"corrections":[{"from":"post gress","to":"Postgres"}]}`,
+		out:    `{"title":"Test meeting","summary":"S","decisions":[],"action_items":[],"corrections":[{"from":"post gress","to":"Postgres"}]}`,
 		called: func() { before, _ = os.ReadFile(md) },
 	}
 	if err := SummariseFile(context.Background(), p, "", llm); err != nil {

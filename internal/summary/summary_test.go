@@ -59,7 +59,7 @@ func TestSchemaIsStrict(t *testing.T) {
 			if m["additionalProperties"] != false {
 				t.Errorf("object without additionalProperties:false: %v", m)
 			}
-			props, _ := m["properties"].(map[string]any)
+			props, _ := m["properties"].(properties)
 			req, _ := m["required"].([]string)
 			if len(req) != len(props) {
 				t.Errorf("not every property required: %v", m)
@@ -69,6 +69,10 @@ func TestSchemaIsStrict(t *testing.T) {
 			switch x := v.(type) {
 			case map[string]any:
 				walk(x)
+			case properties:
+				for _, p := range x {
+					walk(p.schema)
+				}
 			case []any:
 				for _, e := range x {
 					walk(e)
@@ -79,6 +83,22 @@ func TestSchemaIsStrict(t *testing.T) {
 	walk(Schema())
 	if _, err := json.Marshal(Schema()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The model writes the fields in schema order, so the title must come before
+// the long summary rather than after it, as alphabetical order would put it.
+func TestSchemaKeepsPropertyOrder(t *testing.T) {
+	b, err := json.Marshal(Schema())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `"properties":{"title":{"type":"string"},"summary":{"type":"string"},"decisions":`
+	if !strings.Contains(string(b), want) {
+		t.Fatalf("properties out of order:\n%s", b)
+	}
+	if !strings.Contains(string(b), `"properties":{"description":{"type":"string"},"owner":`) {
+		t.Fatalf("action item properties out of order:\n%s", b)
 	}
 }
 
@@ -112,6 +132,9 @@ func TestParseResultRejectsEmptyTitle(t *testing.T) {
 	if _, err := ParseResult(`{"title":"","summary":"x","decisions":[],"action_items":[],"corrections":[]}`); err == nil {
 		t.Fatal("empty title accepted")
 	}
+	if _, err := ParseResult(`{"title":"x","summary":"x","decisions":[],"action_items":[],"corrections":[]}`); err == nil {
+		t.Fatal("placeholder title accepted")
+	}
 	if _, err := ParseResult(`not json`); err == nil {
 		t.Fatal("garbage accepted")
 	}
@@ -137,6 +160,10 @@ func TestSummarise(t *testing.T) {
 	_, err = Summarise(context.Background(), &fakeLLM{err: errors.New("boom")}, m, us)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("error not propagated: %v", err)
+	}
+	_, err = Summarise(context.Background(), &fakeLLM{out: `{"title":""}`}, m, us)
+	if re, ok := errors.AsType[*ReplyError](err); !ok || re.Raw != `{"title":""}` {
+		t.Fatalf("unusable reply not kept: %v", err)
 	}
 	if _, err := Summarise(context.Background(), &fakeLLM{out: sample}, m, nil); err == nil {
 		t.Fatal("empty transcript should be an error, not an LLM call")

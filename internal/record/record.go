@@ -176,6 +176,11 @@ func Finish(ctx context.Context, dir, jsonl string, m transcript.Meeting, us []t
 		if werr != nil {
 			werr = write(dir, m, us, nil) // once more, in case it was passing
 		}
+		if re, ok := errors.AsType[*summary.ReplyError](err); ok {
+			if path, serr := saveReply(dir, re.Raw); serr == nil {
+				err = fmt.Errorf("%w; the model's reply is in %s", err, path)
+			}
+		}
 		if werr != nil {
 			// transcript.jsonl is still intact, so the retry is worth giving.
 			return false, errors.Join(werr, fmt.Errorf("bot: summary failed (%w); once the notes can be written, run: %s", err, retry))
@@ -186,6 +191,16 @@ func Finish(ctx context.Context, dir, jsonl string, m transcript.Meeting, us []t
 		return false, err
 	}
 	return true, nil
+}
+
+// saveReply keeps a reply that could not be used, so that the failure can be
+// looked into; it holds meeting content, so it is private like the notes.
+func saveReply(dir, raw string) (string, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "summary-reply.txt")
+	return path, os.WriteFile(path, []byte(raw), 0o600)
 }
 
 // shellQuote makes s one word for a POSIX shell, so that the printed retry

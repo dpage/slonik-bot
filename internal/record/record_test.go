@@ -1,9 +1,11 @@
 package record
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,6 +95,33 @@ func TestRecordingDiscardRemovesEmptyFolder(t *testing.T) {
 	r.Discard()
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("folder should be gone: %v", err)
+	}
+}
+
+type replyLLM string
+
+func (r replyLLM) Complete(context.Context, string, string, map[string]any) (string, error) {
+	return string(r), nil
+}
+
+// A reply that cannot be used is kept beside the notes, so that the failure
+// can be looked into, and the error says where it is.
+func TestFinishKeepsUnusableReply(t *testing.T) {
+	dir := t.TempDir()
+	us := []transcript.Utterance{{Speaker: "Alice Example", Start: t0, End: t0.Add(time.Second), Text: "Hello"}}
+	m := transcript.Meeting{Code: "abc-defg-hij", Started: t0, Ended: t0.Add(time.Minute)}
+	const reply = `{"title":"x","summary":"Hello."}`
+	ok, err := Finish(context.Background(), dir, filepath.Join(dir, "transcript.jsonl"), m, us, replyLLM(reply))
+	path := filepath.Join(dir, "summary-reply.txt")
+	if ok || err == nil || !strings.Contains(err.Error(), path) {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || string(b) != reply {
+		t.Fatalf("saved reply %q, %v", b, err)
+	}
+	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v", fi.Mode().Perm())
 	}
 }
 

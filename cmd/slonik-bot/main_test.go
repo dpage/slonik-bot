@@ -128,7 +128,7 @@ func TestJoinBadFlag(t *testing.T) {
 func TestSummariseCommand(t *testing.T) {
 	noKeys(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"choices":[{"finish_reason":"stop","message":{"content":"{\"title\":\"T\",\"summary\":\"S\",\"decisions\":[],\"action_items\":[],\"corrections\":[]}"}}]}`)
+		io.WriteString(w, `{"choices":[{"finish_reason":"stop","message":{"content":"{\"title\":\"Test meeting\",\"summary\":\"S\",\"decisions\":[],\"action_items\":[],\"corrections\":[]}"}}]}`)
 	}))
 	defer srv.Close()
 	dir := t.TempDir()

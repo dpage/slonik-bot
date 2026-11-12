@@ -2,11 +2,13 @@
 package summary
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dpage/slonik-bot/internal/transcript"
 )
@@ -28,6 +30,16 @@ type Result struct {
 	Corrections []transcript.Correction `json:"corrections"`
 }
 
+// ReplyError is returned when the model answered but its reply could not be
+// used. Raw is the reply, kept so that the failure can be looked into.
+type ReplyError struct {
+	Raw string
+	Err error
+}
+
+func (e *ReplyError) Error() string { return e.Err.Error() }
+func (e *ReplyError) Unwrap() error { return e.Err }
+
 // LLM is one provider. Complete returns the model's raw text, which should be
 // a JSON object matching schema.
 type LLM interface {
@@ -41,10 +53,50 @@ func nullableString() map[string]any {
 	}}
 }
 
-func object(props map[string]any, required ...string) map[string]any {
+// property is one entry in an object schema. Properties are kept in a slice
+// rather than a map because the model writes the fields in the order the
+// schema lists them, and a map would be sent in alphabetical order, putting
+// the title after the whole summary.
+type property struct {
+	name   string
+	schema map[string]any
+}
+
+type properties []property
+
+func (ps properties) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	b.WriteByte('{')
+	for i, p := range ps {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		k, err := json.Marshal(p.name)
+		if err != nil {
+			return nil, err
+		}
+		v, err := json.Marshal(p.schema)
+		if err != nil {
+			return nil, err
+		}
+		b.Write(k)
+		b.WriteByte(':')
+		b.Write(v)
+	}
+	b.WriteByte('}')
+	return b.Bytes(), nil
+}
+
+// object lists every property as required, so that none is moved: the model
+// writes required properties before optional ones.
+func object(props ...property) map[string]any {
+	required := make([]string, len(props))
+	for i, p := range props {
+		required[i] = p.name
+	}
 	return map[string]any{
 		"type":                 "object",
-		"properties":           props,
+		"properties":           properties(props),
 		"required":             required,
 		"additionalProperties": false,
 	}
@@ -57,22 +109,23 @@ func array(items map[string]any) map[string]any {
 // Schema returns the JSON Schema for Result. Providers' structured-output
 // modes insist that every object forbids extra properties and lists every
 // property as required, so optional values are expressed as string-or-null.
+// The title comes first so that it is written before the long summary.
 func Schema() map[string]any {
 	str := map[string]any{"type": "string"}
-	return object(map[string]any{
-		"title":     str,
-		"summary":   str,
-		"decisions": array(str),
-		"action_items": array(object(map[string]any{
-			"description": str,
-			"owner":       nullableString(),
-			"due":         nullableString(),
-		}, "description", "owner", "due")),
-		"corrections": array(object(map[string]any{
-			"from": str,
-			"to":   str,
-		}, "from", "to")),
-	}, "title", "summary", "decisions", "action_items", "corrections")
+	return object(
+		property{"title", str},
+		property{"summary", str},
+		property{"decisions", array(str)},
+		property{"action_items", array(object(
+			property{"description", str},
+			property{"owner", nullableString()},
+			property{"due", nullableString()},
+		))},
+		property{"corrections", array(object(
+			property{"from", str},
+			property{"to", str},
+		))},
+	)
 }
 
 // ParseResult decodes the model's reply. Models sometimes wrap the JSON in
@@ -93,6 +146,10 @@ func ParseResult(raw string) (*Result, error) {
 	}
 	if strings.TrimSpace(r.Title) == "" || strings.TrimSpace(r.Summary) == "" {
 		return nil, errors.New("summary: reply lacks a title or summary")
+	}
+	// Models have answered with a placeholder such as "x" for the title.
+	if utf8.RuneCountInString(strings.TrimSpace(r.Title)) < 3 {
+		return nil, fmt.Errorf("summary: reply's title %q is too short", r.Title)
 	}
 	if r.Decisions == nil {
 		r.Decisions = []string{}
@@ -117,5 +174,9 @@ func Summarise(ctx context.Context, llm LLM, m transcript.Meeting, us []transcri
 	if err != nil {
 		return nil, fmt.Errorf("summary: %w", err)
 	}
-	return ParseResult(raw)
+	r, err := ParseResult(raw)
+	if err != nil {
+		return nil, &ReplyError{Raw: raw, Err: err}
+	}
+	return r, nil
 }
