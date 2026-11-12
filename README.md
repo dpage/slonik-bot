@@ -1,40 +1,40 @@
 # slonik-bot
 
-slonik-bot is a command line tool that drives Chrome into a Google Meet call, reads the live captions, and asks a language model to summarise the meeting once it ends. It writes a transcript, a summary and a list of action items to a folder on your machine.
+slonik-bot reads the live captions of a Google Meet call and asks a language model to summarise the meeting once it ends. It writes a transcript, a summary and a list of action items to a folder on your machine.
+
+There are two ways to run it:
+
+- **From your own Chrome tab (recommended).** A Chrome extension reads the captions from a call you are already in and sends them to `slonik-bot serve`, a small server on your machine that writes the notes. It needs no extra Google account and nothing else joins the call, so this is the easier route to set up.
+- **As a separate bot account.** `slonik-bot join` drives a Chrome of its own into the call, signed in as a dedicated Google Workspace account, so it can transcribe a meeting you are not in yourself. It needs that account setting up first, and can also run in Docker.
+
+Both routes write the same notes and use the same model for the summary.
 
 ## What it does, and its limits
 
-The bot joins the call as a signed-in Google Workspace account, turns on Meet's captions and scrapes the caption text from the page. It then writes the transcript to disk as it goes, so a crash part-way through still leaves something to summarise.
+Either way, slonik-bot turns on Meet's captions, reads the caption text from the page and writes the transcript to disk as it goes, so a crash part-way through still leaves something to summarise.
 
 - It works from captions only; it does not hear or record audio or video. If nobody is talking, or Meet cannot caption what is said, there is nothing to transcribe.
-- Captions are in English unless you change `caption_language`.
-- Meet's page markup is not a stable interface and can change without notice. When it does, the bot may fail to find the captions until it is updated.
-- The bot is new and has had only a little testing in real meetings, run from macOS with a visible Chrome window, so expect rough edges. The Docker image has not been tried against a real meeting yet.
+- Both routes leave the caption language as Meet has it, except that `join` switches it when `caption_language` names a language other than English.
+- Meet's page markup is not a stable interface and can change without notice. When it does, slonik-bot may fail to find the captions until it is updated.
+- Meet's captions stay on screen whilst the extension transcribes: Meet shrinks the video to make room for them whenever captions are on, and hiding them would only leave an empty space.
+- slonik-bot is new and has had only a little testing in real meetings, run from macOS with a visible Chrome window, so expect rough edges. The Docker image has not been tried against a real meeting yet.
 - When someone pauses and Meet then revises the words just before the pause, a word can occasionally be lost or repeated where the two lines of the transcript meet.
 
 ## Privacy
 
-The bot announces itself: it joins under the account's display name and posts `chat_notice` to the meeting chat, so participants know a transcript is being made. Tell people before you invite it, and follow your organisation's rules on recording meetings.
+slonik-bot announces itself by posting `chat_notice` to the meeting chat, so participants know a transcript is being made. The extension posts it when you start transcribing, and if it cannot, the popup tells you to post it yourself; a bot account also joins under its own display name, so it shows up in the participant list. Tell people before you start, and follow your organisation's rules on recording meetings.
 
-The bot cannot be heard or seen in the call. On every start it tells Chrome to refuse the microphone and camera to every page, so a request from Meet for either one fails, whatever Meet's buttons are labelled. As a second check, it turns off Meet's own microphone and camera controls before it joins and checks them again once it is in; if it cannot confirm that they are off, it does not join, or leaves straight away.
+Everything is kept locally. The only data sent elsewhere is the transcript text, which goes to the summary model you configure, and the API key stays with slonik-bot rather than reaching the browser. Output folders are created with mode 0700 and the files in them with mode 0600, so other users on the same machine cannot read them.
 
-Everything is kept locally. The only data sent elsewhere is the transcript text, which goes to the summary model you configure. Output folders are created with mode 0700 and the files in them with mode 0600, so other users on the same machine cannot read them.
+A bot account cannot be heard or seen in the call. On every start, `join` tells Chrome to refuse the microphone and camera to every page, so a request from Meet for either one fails, whatever Meet's buttons are labelled. As a second check, it turns off Meet's own microphone and camera controls before it joins and checks them again once it is in; if it cannot confirm that they are off, it does not join, or leaves straight away. The extension does not touch your microphone or camera.
 
 ## Requirements
 
-- Go (to build from source), or Docker.
-- Google Chrome or Chromium. On Linux, set `chrome_path` if it is not found automatically.
+- Go, to build from source. Docker can be used instead for the bot account route.
+- Google Chrome or Chromium. For the bot account route on Linux, set `chrome_path` if it is not found automatically.
 - Either an API key for Anthropic or OpenAI, or an OpenAI-compatible server (Ollama, for example) set up through `llm.base_url`. Such servers may need no key at all.
 
-The API key is read from the environment variable named by `llm.api_key_env` (by default `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, depending on the provider). If that variable is empty, the bot reads `~/.anthropic-api-key` or `~/.openai-api-key` instead, trimming any whitespace. It warns if that file can be read by other users, so run `chmod 600` on it. The key is never stored in the configuration file.
-
-## Setting up the bot's Google account
-
-Create a dedicated Workspace account for the bot rather than using a personal one.
-
-1. In the Workspace admin console, give the account a clear display name, such as 'Slonik Bot (Meeting Transcriber)' (Meet shows the first and last names joined by a space, so that is first name 'Slonik Bot' and last name '(Meeting Transcriber)'), and set `bot_name` in the configuration to exactly the same name. The bot finds its own tile in the call by that name, and uses it to tell when everyone else has left; if the two differ, the bot counts itself as another person, never notices it is alone (so it stays until `max_duration`), and lists itself as a participant. When the bot joins, it logs how many other people it counts and any names it can read (Meet usually names only the bot's own tile, so the list is often empty); if its own name is among them, `bot_name` does not match.
-2. Make sure the account can join your meetings without knocking, which means it is in the same organisation as the meeting or has been invited. If it is left in the lobby, the bot waits five minutes and then gives up.
-3. Run `slonik-bot login` once (see below) to sign the account in.
+The API key is read from the environment variable named by `llm.api_key_env` (by default `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, depending on the provider). If that variable is empty, slonik-bot reads `~/.anthropic-api-key` or `~/.openai-api-key` instead, trimming any whitespace. It warns if that file can be read by other users, so run `chmod 600` on it. The key is never stored in the configuration file.
 
 ## Install
 
@@ -48,9 +48,64 @@ or, from a checkout:
 make build
 ```
 
-which writes `bin/slonik-bot`.
+which writes `bin/slonik-bot`. The extension is loaded from the `extension/` folder of a checkout, so clone the repository if you want to use it.
 
-## Usage
+## Transcribing from your own Chrome tab
+
+The extension in `extension/` reads the captions from your Meet tab and sends them to `slonik-bot serve`, which writes the notes and asks the model for the summary when you stop.
+
+### Start the server
+
+```sh
+slonik-bot serve
+```
+
+From a checkout, `./serve.sh` builds the binary and then starts the server, passing on any flags you give it, so it always runs the code you have checked out.
+
+The server listens on `127.0.0.1` only (port 7381 unless you set `serve.port`) and stops on Ctrl-C. The first time it runs it generates a token, saves it in `serve.token_file` (mode 0600) and prints it; after that it only says where the file is, so read the token from there. Every request from the extension must carry the token, and the server also refuses requests from web pages: a request that carries an `Origin` header must come from a `chrome-extension://` origin. It checks the API key before it starts listening.
+
+Flags for `serve`:
+
+| Flag | Meaning |
+| --- | --- |
+| `--config` | Configuration file (default `~/.config/slonik-bot/config.yaml`) |
+| `--llm-model` | Summary model, overriding the configuration |
+| `--llm-provider` | `anthropic` or `openai`, overriding the configuration |
+| `--no-summary` | Save the transcript without asking a model for a summary |
+| `--out` | Directory to hold the meeting folders, overriding `output_dir` |
+| `--verbose` | Log debugging detail |
+
+### Load the extension
+
+1. Open `chrome://extensions` and turn on Developer mode.
+2. Choose Load unpacked and select the `extension/` folder of your checkout.
+3. Open the extension's options and fill in:
+   - Server URL: `http://127.0.0.1:7381` by default; change it only if you changed `serve.port`.
+   - Token: the token from `serve`, for example `<token from serve>`.
+   - Your display name: Meet labels your own captions 'You', so this is the name that goes in the transcript instead, for example `Alice Example`.
+4. Choose Test connection; it says 'Connected: slonik-bot' and the server version when the URL and token are right.
+
+The token is kept in the extension's local storage, not in any file in the repository. After pulling changes to the extension, choose the reload button on its card in `chrome://extensions` so that Chrome picks them up.
+
+### Start and stop
+
+Join the call in the usual way, click the extension's icon and choose Start transcribing. It turns Meet's captions on if they are off, posts the chat notice and shows REC on the icon. The popup shows how many caption events are waiting to be sent. The captions go into `transcript.jsonl` as they arrive, in a folder named as under Output. Choose Stop transcribing to end the session, and the server then writes `transcript.md` and `summary.md` beside it. A call needs a code in its address, such as `meet.google.com/abc-defg-hij` or `meet.google.com/meet/abc-defg-hij`; the button reads 'Open a Meet call' elsewhere. Only one meeting is recorded at a time: a second tab that tries to start gets an error from the server (HTTP 409).
+
+If you close the tab, leave the page or leave the call, including for Meet's home page, the extension asks the server to stop the session. If it cannot, the server stops it by itself once no captions or heartbeats have arrived for `serve.idle_timeout`. Ctrl-C in the terminal running `serve` stops any open session and writes its notes before the server exits. A session that captured nothing leaves no folder.
+
+If `serve` restarts during a call, the extension notices that the session has gone and starts a new one, which gets a second folder (`2026-10-30-abc-defg-hij-2`) holding what was captured afterwards. If you stopped `serve` with Ctrl-C, the folder from before the restart has its notes and summary as usual; only if `serve` crashed or was killed does it have just what had been saved at that point and no summary, in which case run `slonik-bot summarise` on its `transcript.jsonl` if you want one.
+
+## Joining as a separate bot account
+
+`slonik-bot join` starts a Chrome of its own, signed in as a dedicated Google Workspace account, joins the call and transcribes it until the meeting ends.
+
+### Setting up the bot's Google account
+
+Create a dedicated Workspace account for the bot rather than using a personal one.
+
+1. In the Workspace admin console, give the account a clear display name, such as 'Slonik Bot (Meeting Transcriber)' (Meet shows the first and last names joined by a space, so that is first name 'Slonik Bot' and last name '(Meeting Transcriber)'), and set `bot_name` in the configuration to exactly the same name. The bot finds its own tile in the call by that name, and uses it to tell when everyone else has left; if the two differ, the bot counts itself as another person, never notices it is alone (so it stays until `max_duration`), and lists itself as a participant. When the bot joins, it logs how many other people it counts and any names it can read (Meet usually names only the bot's own tile, so the list is often empty); if its own name is among them, `bot_name` does not match.
+2. Make sure the account can join your meetings without knocking, which means it is in the same organisation as the meeting or has been invited. If it is left in the lobby, the bot waits five minutes and then gives up.
+3. Run `slonik-bot login` once (see below) to sign the account in.
 
 ### Sign in
 
@@ -85,53 +140,17 @@ Flags for `join`:
 | `--out` | Directory to hold the meeting folders, overriding `output_dir` |
 | `--verbose` | Log debugging detail |
 
-### Summarise a saved transcript
+## Summarising a saved transcript
 
 ```sh
 slonik-bot summarise ~/slonik-bot-notes/2026-10-30-abc-defg-hij/transcript.jsonl
 ```
 
-This re-runs the summary for a saved `transcript.jsonl`, for example after changing the model or when the first attempt failed. If a summary fails at the end of a meeting, the bot prints the exact `summarise` command to run, so you can copy it. `summarise` accepts `--config`, `--llm-model`, `--llm-provider`, `--out` (default: the transcript's own directory) and `--verbose`.
-
-## Transcribing from your own Chrome tab
-
-`join` needs a separate Google account and a Chrome that the bot controls. If you would rather transcribe a call you are already in, from your own Chrome and your own account, use the extension in `extension/` together with `slonik-bot serve`. The extension reads the captions from your Meet tab and sends them to a small server on your machine, which writes the same notes as `join` and asks the same model for the summary. Nobody else sees a bot in the call, but the extension posts `chat_notice` to the meeting chat when you start, so participants still know; if it cannot post it, the popup tells you to do it yourself. The API key stays with `serve` and never reaches the browser.
-
-### Start the server
-
-```sh
-slonik-bot serve
-```
-
-The server listens on `127.0.0.1` only (port 7381 unless you set `serve.port`) and stops on Ctrl-C. The first time it runs it generates a token, saves it in `serve.token_file` (mode 0600) and prints it; after that it only says where the file is, so read the token from there. Every request from the extension must carry the token, and the server also refuses requests that come from anything other than the extension's own origin. `serve` accepts `--config`, `--llm-model`, `--llm-provider`, `--no-summary`, `--out` and `--verbose`, which mean the same as for `join`, and it checks the API key before it starts listening.
-
-### Load the extension
-
-1. Open `chrome://extensions` and turn on Developer mode.
-2. Choose Load unpacked and select the `extension/` folder of your checkout.
-3. Open the extension's options and fill in:
-   - Server URL: `http://127.0.0.1:7381` by default; change it only if you changed `serve.port`.
-   - Token: the token from `serve`, for example `<token from serve>`.
-   - Your display name: Meet labels your own captions 'You', so this is the name that goes in the transcript instead, for example `Alice Example`.
-4. Choose Test connection; it says 'Connected: slonik-bot' and the server version when the URL and token are right.
-
-The token is kept in the extension's local storage, not in any file in the repository.
-
-### Start and stop
-
-Join the call in the usual way, click the extension's icon and choose Start transcribing. It turns Meet's captions on if they are off, posts the chat notice and shows REC on the icon. The popup shows how many caption events are waiting to be sent. Choose Stop transcribing to end the session, and the server then writes `transcript.jsonl`, `transcript.md` and `summary.md` into a folder named as under Output. A call needs a code in its address, such as `meet.google.com/abc-defg-hij` or `meet.google.com/meet/abc-defg-hij`; the button reads 'Open a Meet call' elsewhere. Only one meeting is recorded at a time: a second tab that tries to start gets an error from the server (HTTP 409).
-
-If you close the tab, leave the page or leave the call, including for Meet's home page, the extension asks the server to stop the session. If it cannot, the server stops it by itself once no captions or heartbeats have arrived for `serve.idle_timeout`. Ctrl-C in the terminal running `serve` stops any open session and writes its notes before the server exits. A session that captured nothing leaves no folder.
-
-If `serve` restarts during a call, the extension notices that the session has gone and starts a new one, which gets a second folder (`2026-10-30-abc-defg-hij-2`) holding what was captured afterwards. If you stopped `serve` with Ctrl-C, the folder from before the restart has its notes and summary as usual; only if `serve` crashed or was killed does it have just what had been saved at that point and no summary, in which case run `slonik-bot summarise` on its `transcript.jsonl` if you want one.
-
-### Limits of the extension route
-
-Meet's captions stay on screen whilst the extension transcribes: Meet shrinks the video to make room for them whenever captions are on, and hiding them would only leave an empty space. The other limits listed under 'What it does, and its limits' apply here too, in particular that Meet's page markup can change without notice.
+This re-runs the summary for a saved `transcript.jsonl`, for example after changing the model or when the first attempt failed. If a summary fails at the end of a meeting, `join` or `serve` prints the exact `summarise` command to run, so you can copy it. `summarise` accepts `--config`, `--llm-model`, `--llm-provider`, `--out` (default: the transcript's own directory) and `--verbose`.
 
 ## Configuration
 
-Save this as `~/.config/slonik-bot/config.yaml`, or under `$XDG_CONFIG_HOME/slonik-bot/`. Every key is optional; the values shown are the defaults.
+Save this as `~/.config/slonik-bot/config.yaml`, or under `$XDG_CONFIG_HOME/slonik-bot/`. Every key is optional; the values shown are the defaults. The extension route uses only `chat_notice`, `output_dir`, `llm` and `serve`; the other keys are for `join` (and `login`).
 
 ```yaml
 # Must match the bot account's Google display name exactly: the bot finds its
@@ -147,13 +166,13 @@ alone_timeout: 60s
 llm:
   provider: anthropic      # anthropic | openai
   model: ""                # default per provider: claude-opus-5-5 for anthropic; required for openai
-  base_url: ""             # openai only, e.g. http://localhost:11434/v1
+  base_url: ""             # openai only, and required for it, e.g. https://api.openai.com/v1 or http://localhost:11434/v1
   api_key_env: ""          # default ANTHROPIC_API_KEY / OPENAI_API_KEY; if unset, the key is read from ~/.anthropic-api-key / ~/.openai-api-key; it is never stored in this file
   max_output_tokens: 16000
 serve:                     # the local server behind `slonik-bot serve`, used by the Chrome extension
   port: 7381               # listens on 127.0.0.1 only
   token_file: "~/.config/slonik-bot/serve-token"  # generated on first `slonik-bot serve`; the token is never stored in this file
-  idle_timeout: 2m         # finish a meeting when no captions arrive for this long; at least 30s
+  idle_timeout: 2m         # finish a meeting when no captions or heartbeats arrive for this long; at least 30s
 ```
 
 ## Output
@@ -169,7 +188,7 @@ Each meeting gets its own folder under `output_dir`, named by the date it starte
     summary.md         summary, decisions and action items
 ```
 
-If the bot joins the same meeting again on the same day, for example after a crash or after it left early, the new session gets a folder of its own (`2026-10-30-abc-defg-hij-2`, then `-3` and so on), so an earlier session's notes are never overwritten.
+If the same meeting is recorded again on the same day, for example after a crash, after the bot left early or after `serve` restarted, the new session gets a folder of its own (`2026-10-30-abc-defg-hij-2`, then `-3` and so on), so an earlier session's notes are never overwritten.
 
 If the model answers but its reply cannot be used, for example because the title is missing, the reply is saved as `summary-reply.txt` in the same folder instead of a summary; run `slonik-bot summarise` to try again.
 
@@ -177,7 +196,7 @@ If the model answers but its reply cannot be used, for example because the title
 
 ## Docker
 
-The image bundles Chromium and a virtual display (Xvfb). On macOS, including Apple Silicon, the native binary is the supported route for both `login` and `join`; the image is meant for Linux hosts. Chromium's sandbox is turned off inside the image, because Docker's default seccomp profile blocks it and the container is the isolation boundary instead. Build it with:
+The image is for the bot account route; the extension route needs your own Chrome, so run `serve` natively. The image bundles Chromium and a virtual display (Xvfb). On macOS, including Apple Silicon, the native binary is the supported route for both `login` and `join`; the image is meant for Linux hosts. Chromium's sandbox is turned off inside the image, because Docker's default seccomp profile blocks it and the container is the isolation boundary instead. Build it with:
 
 ```sh
 docker build -t slonik-bot:dev .
@@ -226,12 +245,25 @@ The sign-in is saved in the mounted `/config` directory (the profile defaults to
 
 ## Troubleshooting
 
+### The extension
+
+- **Test connection fails.** 'Failed: missing or wrong token' means the token in the options does not match `serve.token_file`; a network error instead means `serve` is not running, or is on a different port from the Server URL.
+- **The button reads 'Open a Meet call'.** The tab's address has no meeting code, so join the call itself rather than Meet's home page; or the tab was opened before the extension was loaded or reloaded, so reload the tab.
+- **Another meeting is already being recorded.** Only one session runs at a time; stop the one in the other tab, or wait for `serve.idle_timeout` if that tab has gone.
+- **Chat notice not posted.** The popup shows why; post the notice in the chat yourself.
+- **`serve` refuses a setting it does not use.** `serve` checks the whole configuration file, so fix any invalid value it reports, even for a key it does not use.
+
+### The bot account
+
 - **Not signed in.** The bot reports that the profile is not signed in, or Meet asks for a name or sign-in. Run `slonik-bot login` again (or the Docker login recipe above) and make sure the profile directory is the one `join` uses.
 - **Not admitted.** The bot sits at the lobby and gives up. The account must be in the meeting's organisation or invited, so it can join without anyone letting it in.
-- **Captions not found.** Meet's layout has probably changed. Run with `--verbose` and without `--headless` to see what the bot is doing, and open an issue with the log output (check it for names and meeting details first).
 - **Join request flagged as a risk.** Meet shows the host a warning, with Deny as the default, when the bot runs with `--headless`; headless Chrome names itself `HeadlessChrome` in its user agent. Run without `--headless`: a minimised window joins without the warning, and the Docker image's virtual display should too, though that is untested.
 - **Join button or chat ignored.** The bot clicks and types through scripted input, which Meet may treat as coming from a bot rather than a person. If the join button does not respond, the bot is refused, or the chat notice is not posted, that is the most likely cause. Run without `--headless` to watch what happens, and open an issue if it persists.
-- **No summary.** If the model call fails, the transcript is still saved; fix the key or model and run the `summarise` command the bot printed.
+
+### Either route
+
+- **Captions not found.** Meet's layout has probably changed. For `join`, run with `--verbose` and without `--headless` to see what the bot is doing; either way, open an issue, and check any log output you attach for names and meeting details first.
+- **No summary.** If the model call fails, the transcript is still saved; fix the key or model and run the `summarise` command that was printed. If the reply came back but could not be used, it is in `summary-reply.txt`.
 
 ## Development
 
